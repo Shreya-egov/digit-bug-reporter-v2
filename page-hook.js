@@ -2,12 +2,12 @@
 // and the user's clicks/navigation, and hands them to relay.js. Never records request bodies (they carry
 // the auth token) or what is typed into text fields.
 (() => {
-  if (window.__digitBugHook) return;
-  window.__digitBugHook = true;
+  if (window.__digitBugV2Hook) return;
+  window.__digitBugV2Hook = true;
 
   const post = (event) => {
     try {
-      window.postMessage({ __digitBug: 1, event: { ts: Date.now(), ...event } }, location.origin);
+      window.postMessage({ __digitBugV2: 1, event: { ts: Date.now(), ...event } }, location.origin);
     } catch { /* page navigating away */ }
   };
   const short = (s, n = 300) => String(s ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
@@ -77,11 +77,11 @@
   const origOpen = XMLHttpRequest.prototype.open;
   const origSend = XMLHttpRequest.prototype.send;
   XMLHttpRequest.prototype.open = function (method, url) {
-    this.__digitBug = { method: String(method).toUpperCase(), url: pathOf(url) };
+    this.__digitBugV2 = { method: String(method).toUpperCase(), url: pathOf(url) };
     return origOpen.apply(this, arguments);
   };
   XMLHttpRequest.prototype.send = function () {
-    const info = this.__digitBug;
+    const info = this.__digitBugV2;
     if (info) {
       this.addEventListener('loadend', () => {
         if (this.status && this.status < 400) return;

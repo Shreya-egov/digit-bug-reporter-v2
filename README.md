@@ -1,4 +1,8 @@
-# DIGIT Bug Reporter (Chrome extension)
+# DIGIT Bug Reporter v2 (Chrome extension)
+
+> **v2 can be installed next to v1** ([digit-bug-reporter](https://github.com/Shreya-egov/digit-bug-reporter)) for side-by-side
+> testing. It has its own name, a teal **v2** toolbar icon, the shortcut **Alt+Shift+V** (v1 keeps Alt+Shift+B), and its own
+> storage. Its capture and GitHub filling use separate markers, so neither version picks up the other's reports.
 
 Record a bug on the DIGIT HCM console the way you would with a screen recorder. When you press **Stop**, the
 extension opens a review page with the video, a screenshot, the steps drafted from your clicks, and the failing API
@@ -18,7 +22,7 @@ reviewer you pick, asking you before each step that changes anything.
    or download it as a ZIP from GitHub (**Code → Download ZIP**) and unzip it.
 2. Open `chrome://extensions` and turn on **Developer mode** (top right).
 3. Click **Load unpacked** and choose the `digit-bug-reporter-v2` folder.
-4. Pin the extension: click the puzzle icon in the toolbar, then the pin next to **DIGIT Bug Reporter**.
+4. Pin the extension: click the puzzle icon in the toolbar, then the pin next to **DIGIT Bug Reporter v2**.
 5. Reload any DIGIT tabs that are already open, so that capture starts on them.
 6. Optional, for **Fix UI issue**: install the Claude Code skill once:
    ```bash
@@ -27,7 +31,7 @@ reviewer you pick, asking you before each step that changes anything.
    (run it in the extension folder).
 
 ## Use
-1. On the DIGIT page, click the extension icon (or press **Alt+Shift+B**) and choose what to capture:
+1. On the DIGIT page, click the extension icon (or press **Alt+Shift+V**) and choose what to capture:
    **Video + screenshot**, **Video only** or **Screenshot only**. The popup remembers your choice.
 2. Click **● Start recording** and reproduce the bug. Recording stops by itself after 2 minutes.
    With **Screenshot only**, click **📷 Take screenshot** instead; the review page opens straight away.
@@ -132,5 +136,5 @@ write access to the repo; otherwise set them in the issue sidebar.
 - Capture works on `*.digit.org` tabs only.
 
 ## Updating
-`git pull` in the folder (or download the ZIP again), then click the reload icon (↻) on **DIGIT Bug Reporter** in
+`git pull` in the folder (or download the ZIP again), then click the reload icon (↻) on **DIGIT Bug Reporter v2** in
 `chrome://extensions`. Updating from 0.1 keeps your saved reports.

@@ -1,12 +1,12 @@
-// On github.com/<repo>/issues/new#digitbug=<id>: fill in the reviewed title and body and upload the media.
+// On github.com/<repo>/issues/new#digitbug2=<id>: fill in the reviewed title and body and upload the media.
 // Never clicks Create; the user does that after checking the form. When the user does, GitHub opens the new
 // issue in the same tab, and its URL goes to the bug tracker.
 (() => {
-  const KEY = 'digitbug-pending';
-  const CREATED_KEY = 'digitbug-created'; // { id, repoPath } while waiting for the user to click Create
+  const KEY = 'digitbug2-pending';
+  const CREATED_KEY = 'digitbug2-created'; // { id, repoPath } while waiting for the user to click Create
   const UPLOAD_TIMEOUT_MS = 120_000;
 
-  const hashId = location.hash.match(/digitbug=([\w-]+)/)?.[1];
+  const hashId = location.hash.match(/digitbug2=([\w-]+)/)?.[1];
   if (hashId) {
     sessionStorage.setItem(KEY, hashId);
     history.replaceState(null, '', location.pathname + location.search);
@@ -29,7 +29,7 @@
       document.body.append(banner);
     }
     banner.style.background = { info: '#1d70b8', ok: '#00703c', warn: '#b54c00' }[tone];
-    banner.firstChild.textContent = `DIGIT Bug Reporter: ${text}`;
+    banner.firstChild.textContent = `DIGIT Bug Reporter v2: ${text}`;
   }
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

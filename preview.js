@@ -111,7 +111,7 @@ function buildBody() {
     section('Notes', v('notes')),
     `**Severity:** ${v('severity')}   **Priority:** ${v('priority')}   **Type:** ${v('type')}   **Component:** ${v('component') || 'not set'}`,
     '',
-    '<sub>Captured with DIGIT Bug Reporter. Evidence was redacted automatically and reviewed by the reporter.</sub>',
+    '<sub>Captured with DIGIT Bug Reporter v2. Evidence was redacted automatically and reviewed by the reporter.</sub>',
     '',
   ].join('\n');
 }
@@ -362,7 +362,7 @@ if (!report) {
       if (fields.labels.length) params.set('labels', fields.labels.join(','));
       const query = params.toString();
       // tabs.create, not window.open: a popup blocker can swallow window.open after the await above
-      await chrome.tabs.create({ url: `https://github.com/${repo}/issues/new${query ? `?${query}` : ''}#digitbug=${id}` });
+      await chrome.tabs.create({ url: `https://github.com/${repo}/issues/new${query ? `?${query}` : ''}#digitbug2=${id}` });
       status('GitHub opened in a new tab. Check the filled form there, wait for the uploads to finish, then click Create.');
     } catch (err) {
       showFailure(err);
