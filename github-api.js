@@ -1,4 +1,4 @@
-// Read-only GitHub API lookups for the review page: repos and assignees.
+// Read-only GitHub API lookups: repos, assignees and labels for the review page; issues, PRs and checks for the tracker.
 // The token is optional; without it only public data can be listed.
 const API = 'https://api.github.com';
 export const DEFAULT_ORG = 'egovernments';
@@ -15,7 +15,7 @@ export async function clearCache() {
   await chrome.storage.local.remove(Object.keys(all).filter((k) => k.startsWith('cache:')));
 }
 
-async function request(path, token, init = {}) {
+export async function request(path, token, init = {}) {
   let res;
   try {
     res = await fetch(API + path, {
@@ -78,4 +78,9 @@ export function listRepos(token) {
 export function listAssignees(repo, token) {
   return cached(`assignees:${repo}`, HOUR, async () =>
     (await paged(`/repos/${repo}/assignees?per_page=100`, token, 5)).map((u) => u.login).sort((a, b) => a.localeCompare(b)));
+}
+
+export function listLabels(repo, token) {
+  return cached(`labels:${repo}`, HOUR, async () =>
+    (await paged(`/repos/${repo}/labels?per_page=100`, token, 3)).map((l) => l.name).sort((a, b) => a.localeCompare(b)));
 }

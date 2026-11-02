@@ -9,6 +9,7 @@
 <body>
 <main>
   <h1>Review bug report</h1>
+  <p class="nav"><a href="tracker.html">Bug tracker</a></p>
   <p class="lead">Check everything below. Nothing goes to GitHub until you press <strong>Open on GitHub</strong>,
     and the issue is only created when you click <strong>Create</strong> there.</p>
 
@@ -56,6 +57,19 @@
       <p class="hint" id="assigneeHint"></p>
     </div>
 
+    <div class="row combo-row">
+      <label for="labelInput">Labels <span id="labelCount" class="hint"></span></label>
+      <div class="combo" id="labelCombo">
+        <input id="labelInput" role="combobox" aria-expanded="false" aria-controls="labelOptions" aria-autocomplete="list"
+               autocomplete="off" spellcheck="false" placeholder="Search labels…">
+        <button type="button" id="labelToggle" class="combo-toggle" aria-label="Show labels" tabindex="-1">▾</button>
+        <ul id="labelOptions" role="listbox" aria-label="Labels in this repository" hidden></ul>
+      </div>
+      <ul id="labelChips" class="chips" aria-label="Selected labels"></ul>
+      <input id="labelText" placeholder="Label names, comma-separated" aria-label="Labels" hidden>
+      <p class="hint" id="labelHint"></p>
+    </div>
+
     <label>Title <span class="hint">&lt;Screen/feature&gt;: &lt;what goes wrong&gt; · max 90 characters, no environment name</span>
       <input id="title" maxlength="90" placeholder="App configuration: dependent field not shown after selecting Yes">
     </label>
@@ -64,6 +78,8 @@
     <label>Environment <input id="env"></label>
     <label>Summary <span class="hint">2–3 sentences: what breaks and who is affected</span>
       <textarea id="summary" rows="3"></textarea></label>
+    <label>Preconditions <span class="hint">role you log in as, campaign state or data needed before step 1</span>
+      <textarea id="preconditions" rows="2"></textarea></label>
     <label>Steps to reproduce <span class="hint">drafted from your clicks; check and add the values you typed</span>
       <textarea id="steps" rows="8"></textarea></label>
     <div class="row two">
@@ -76,10 +92,10 @@
     <p class="warn" id="captureNote" hidden></p>
     <label>Notes <span class="hint">root cause if known, workaround, other envs/campaigns affected</span>
       <textarea id="notes" rows="2"></textarea></label>
-    <div class="row two">
-      <label>Severity
-        <select id="severity"><option>Critical</option><option>High</option><option selected>Medium</option><option>Low</option></select>
-      </label>
+    <div class="row four">
+      <label>Bug type <select id="type"></select></label>
+      <label>Severity <select id="severity"></select></label>
+      <label>Priority <select id="priority"></select></label>
       <label>Component <input id="component"></label>
     </div>
 

@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DIGIT bug tracker</title>
+<link rel="stylesheet" href="preview.css">
+<link rel="stylesheet" href="tracker.css">
+</head>
+<body>
+<main class="wide">
+  <h1>Bug tracker</h1>
+  <p class="lead">Every bug you open on GitHub from the review page, plus any issue you add by URL. Issue state, the linked
+    PR, its reviewer and its checks are read from GitHub every 30 minutes, or when you press <strong>Sync now</strong>.</p>
+
+  <div class="toolbar">
+    <button type="button" id="sync" class="primary">Sync now</button>
+    <button type="button" id="addIssue">Add issue by URL</button>
+    <button type="button" id="export">Download Excel</button>
+    <button type="button" id="link">Link a workbook file…</button>
+    <button type="button" id="relink" hidden>Update workbook</button>
+    <button type="button" id="unlink" class="linkish" hidden>Unlink</button>
+  </div>
+  <p id="syncStatus" class="hint" role="status"></p>
+  <p id="workbookStatus" class="hint"></p>
+
+  <section aria-label="Summary">
+    <ul class="tiles" id="tiles"></ul>
+    <details id="breakdowns" open>
+      <summary>By repository, environment, severity and owner</summary>
+      <div class="breakdowns" id="breakdownTables"></div>
+    </details>
+  </section>
+
+  <div class="filters">
+    <label>Status <select id="statusFilter"></select></label>
+    <label>Search <input id="search" type="search" placeholder="Title, repo, owner, issue number…"></label>
+  </div>
+
+  <div class="table-wrap">
+    <table id="bugs">
+      <caption class="visually-hidden">Tracked bugs</caption>
+      <thead><tr>
+        <th scope="col">Issue</th><th scope="col">Title</th><th scope="col">Env</th><th scope="col">Repository</th>
+        <th scope="col">Type</th><th scope="col">Severity</th><th scope="col">Priority</th><th scope="col">Owner</th>
+        <th scope="col">Fix</th><th scope="col">PR</th><th scope="col">Tests</th><th scope="col">Reported</th>
+        <th scope="col">Status</th><th scope="col"><span class="visually-hidden">Actions</span></th>
+      </tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+  <p id="empty" class="hint" hidden>No bugs tracked yet. Report one with the toolbar button (Alt+Shift+B), or add an
+    existing issue by URL.</p>
+</main>
+
+<dialog id="addDialog" aria-labelledby="addTitle">
+  <form method="dialog" id="addForm">
+    <h2 id="addTitle">Add an issue by URL</h2>
+    <label>GitHub issue URL
+      <input id="addUrl" placeholder="https://github.com/egovernments/DIGIT-Frontend/issues/1234" spellcheck="false" autocomplete="off"></label>
+    <p class="hint">Title, state, assignees and any linked PR are read from GitHub. Environment, severity and priority are
+      taken from the issue body when it was written by this extension or the github-bug skill.</p>
+    <p id="addError" class="field-error" hidden></p>
+    <div class="actions">
+      <button type="submit" value="add" class="primary">Add</button>
+      <button type="button" class="close">Cancel</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="bugDialog" aria-labelledby="bugTitle">
+  <form method="dialog" id="bugForm">
+    <h2 id="bugTitle"></h2>
+    <p id="bugLinks" class="hint"></p>
+    <div class="row four">
+      <label>Bug type <select id="bType"></select></label>
+      <label>Severity <select id="bSeverity"></select></label>
+      <label>Priority <select id="bPriority"></select></label>
+      <label>Environment <input id="bEnv"></label>
+    </div>
+    <div class="row two">
+      <label>Reviewer <input id="bReviewer" placeholder="GitHub username" spellcheck="false" autocomplete="off"></label>
+      <label>Test status <select id="bTests"></select></label>
+    </div>
+    <label>PR URL <span class="hint">leave empty to use the PR that mentions the issue</span>
+      <input id="bPr" placeholder="https://github.com/egovernments/DIGIT-Frontend/pull/1234" spellcheck="false" autocomplete="off"></label>
+    <p id="bugError" class="field-error" hidden></p>
+    <div class="actions">
+      <button type="submit" value="save" class="primary">Save</button>
+      <button type="button" id="bFix">Fix UI issue…</button>
+      <button type="button" id="bStarted"></button>
+      <button type="button" id="bVerified"></button>
+      <button type="button" id="bDelete" class="danger">Remove from tracker</button>
+    </div>
+    <h3>Log</h3>
+    <ol id="bLog" class="log"></ol>
+    <div class="actions"><button type="button" class="close">Close</button></div>
+  </form>
+</dialog>
+
+<dialog id="fixDialog" aria-labelledby="fixTitle">
+  <form method="dialog" id="fixForm">
+    <h2 id="fixTitle">Fix UI issue with Claude Code</h2>
+    <p class="hint" id="fixIssue"></p>
+    <label>Repository to fix <span class="hint">where the code change goes; may differ from where the issue was filed</span>
+      <input id="fixRepo" list="repoList" spellcheck="false" autocomplete="off"></label>
+    <datalist id="repoList"></datalist>
+    <div class="row two">
+      <label>Reviewer / owner <select id="fixReviewer"></select></label>
+      <label>Base branch <span class="hint">empty: Claude picks the branch the deployed build came from</span>
+        <input id="fixBase" spellcheck="false" autocomplete="off" placeholder="e.g. console"></label>
+    </div>
+    <p class="hint" id="fixReviewerHint"></p>
+    <p id="fixError" class="field-error" hidden></p>
+    <p>Run this in a terminal. Claude Code reads the issue and its evidence, finds the root cause in a separate git
+      worktree, makes the fix, writes tests and runs them. It then stops and shows you the diff and test results:
+      nothing is pushed and no PR is opened until you say yes. PRs are never merged.</p>
+    <pre id="fixCommand" class="command"></pre>
+    <div class="actions">
+      <button type="submit" value="copy" class="primary">Copy command and mark in progress</button>
+      <button type="button" class="close">Cancel</button>
+    </div>
+  </form>
+</dialog>
+
+<script type="module" src="tracker.js"></script>
+</body>
+</html>

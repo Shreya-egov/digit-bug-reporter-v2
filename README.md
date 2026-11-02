@@ -5,16 +5,26 @@ extension opens a review page with the video, a screenshot, the steps drafted fr
 calls and console errors, already redacted. After you review it, **Open on GitHub** fills in the new-issue form and
 uploads the media. You click **Create**.
 
+Each issue then goes into a **bug tracker** that follows it on GitHub: the PR that fixes it, the reviewer, the
+checks, and your verification. The tracker exports to Excel. For UI bugs, **Fix UI issue** hands the issue to
+Claude Code, which finds the root cause, fixes it on a new branch, adds and runs tests, and opens a PR for the
+reviewer you pick, asking you before each step that changes anything.
+
 ## Install (once)
 1. Get the code:
    ```bash
-   git clone https://github.com/Shreya-egov/digit-bug-reporter.git
+   git clone https://github.com/Shreya-egov/digit-bug-reporter-v2.git
    ```
    or download it as a ZIP from GitHub (**Code → Download ZIP**) and unzip it.
 2. Open `chrome://extensions` and turn on **Developer mode** (top right).
-3. Click **Load unpacked** and choose the `digit-bug-reporter` folder.
+3. Click **Load unpacked** and choose the `digit-bug-reporter-v2` folder.
 4. Pin the extension: click the puzzle icon in the toolbar, then the pin next to **DIGIT Bug Reporter**.
 5. Reload any DIGIT tabs that are already open, so that capture starts on them.
+6. Optional, for **Fix UI issue**: install the Claude Code skill once:
+   ```bash
+   mkdir -p ~/.claude/skills && ln -s "$PWD/claude-skills/fix-ui-bug" ~/.claude/skills/fix-ui-bug
+   ```
+   (run it in the extension folder).
 
 ## Use
 1. On the DIGIT page, click the extension icon (or press **Alt+Shift+B**) and choose what to capture:
@@ -25,37 +35,97 @@ uploads the media. You click **Create**.
 4. On the review page:
    - Pick the **repository** (click to see all, or type to search), then optionally the **assignees** for that
      repo. Each new report starts with nobody assigned.
-   - Write the title, the expected result and the actual result.
+   - Optionally pick **labels** from the repo's own labels.
+   - Write the title, the preconditions, the expected result and the actual result. Set the bug type, severity and
+     priority.
    - Check the drafted steps, and add the values you typed. Typed text is never recorded.
    - Watch the video. Tick the box confirming that no personal data is visible.
-5. Click **Open on GitHub**. Wait for the "done" banner, check the issue, then click **Create**.
+5. Click **Open on GitHub**. Wait for the "done" banner, check the issue, then click **Create**. The banner then
+   says the issue was added to the bug tracker.
 
 Other options: **Copy as Markdown** for Jira or Slack, **Download video**, and **Discard**.
+
+## Bug tracker
+Open it from the popup (**Bug tracker**) or the link on the review page. It lists every issue opened from the
+review page, plus any issue you add with **Add issue by URL**, such as bugs filed with the `github-bug` skill or by
+hand. For those, environment, severity and priority are read from the issue body when it uses this extension's
+format.
+
+- **Synced from GitHub** every 30 minutes and on **Sync now**: issue state and assignees, the PR that mentions the
+  issue (or one you set by hand), its reviewer, and its checks (**Tests**: Passed/Failed/Running).
+- **Set by you** in a bug's **Open** dialog: type, severity, priority, environment, reviewer, test status, PR URL,
+  **Mark fix in progress** and **Mark verified**. Verifying is allowed once the fix is merged or the issue is closed
+  as completed.
+- **Status** follows the bug through: Draft → Open → In progress → In review (PR open) → Fixed (PR merged) →
+  Verified → Verified & closed. "Closed (not planned)" is for issues closed without a fix.
+- **Log:** each bug's dialog lists what changed and when: status, fix, tests, edits, and the fix command.
+- Tiles at the top show total, open, in progress, fixed, verified & closed, and PRs awaiting review. Below them are
+  counts by repository, environment, severity and owner.
+
+### Excel
+- **Download Excel** saves `DIGIT-HCM-bug-tracker-<date>.xlsx`. The **Bugs** sheet has one row per bug: issue ID,
+  title, environment, repository, type, severity, priority, issue link, owner, fix status, PR link, reviewer, test
+  status, dates reported/fixed/verified, and current status. The **Summary** sheet has the metrics and breakdowns as
+  `COUNTIF` formulas over the Bugs sheet, so they stay right if you edit rows in Excel. The owner breakdown is a
+  snapshot.
+- **Link a workbook file…** picks a file once (for a shared copy, put it in a synced OneDrive/Drive folder). The
+  tracker rewrites it whenever something changes **while the tracker page is open**. After a Chrome restart, Chrome
+  asks again: press **Update workbook**. Close the file in Excel first, since Excel locks files it has open. Edits
+  made in the linked file are overwritten: the tracker is the source, and the workbook is a copy of it.
+
+## Fixing a UI bug with Claude Code
+In the tracker, open a bug that has a GitHub issue and click **Fix UI issue…**:
+1. Check the **repository to fix**. It defaults to DIGIT-Frontend for UI bugs, even when the issue was filed in the
+   services repo.
+2. Pick the **reviewer/owner** from the people who can be assigned in that repo. Optionally give a **base branch**.
+3. Click **Copy command and mark in progress** and paste the command into a terminal, for example:
+   `claude --chrome "/fix-ui-bug https://github.com/egovernments/DIGIT-Frontend/issues/1234 repo=egovernments/DIGIT-Frontend reviewer=someone"`
+
+Claude Code (the `fix-ui-bug` skill, see Install step 6) reads the issue and its screenshots, reproduces the bug
+read-only, finds the root cause, and works in a **new git worktree on a new `fix/` branch**, so your own checkouts
+aren't touched. It asks before each step that changes anything:
+1. root cause and plan → before editing code;
+2. diff and test results → before committing and pushing the branch;
+3. PR text (issue link, root cause, changes, tests added, test results, evidence) → before creating the PR and
+   requesting the reviewer.
+
+It never merges. The PR mentions the issue, so the tracker picks it up on the next sync.
+
+A browser extension can't edit code, run tests or push, which is why this part runs in Claude Code and not in
+Chrome.
 
 ## Connecting GitHub (optional)
 Without a token the review page lists the public `egovernments` repos and the people who can be assigned in the
 chosen repo. GitHub allows about 60 such lookups an hour without a token; lists are cached, so reopening a report
 doesn't repeat them.
 
+The tracker uses the same lookups: about four per open bug on each sync. Without a token, the hourly limit covers
+roughly 15 bugs, so connect a token if you track more than that.
+
 A token adds the private repos your account can open and a much higher limit. Open the extension's **Settings**
 (right-click the icon → *Options*, or the **Connect GitHub** link on the review page), paste a token and click
 **Save and test**. The settings page explains which read-only permissions it needs. The token stays in your Chrome
-profile and is only used to read these lists.
+profile and is only used to read: repo, people and label lists, and issue, PR and check status for the tracker.
 
-Assignees are passed to GitHub in the new-issue link. GitHub applies them only if you have triage or write access to
-the repo; otherwise set them in the issue sidebar.
+Assignees and labels are passed to GitHub in the new-issue link. GitHub applies them only if you have triage or
+write access to the repo; otherwise set them in the issue sidebar.
 
 ## What is captured
 - **Captured:** failing API calls (method, path, status, and the DIGIT `Errors[].code/message`); console errors;
-  button and option clicks; select and checkbox changes; page changes; the tenant.
+  button and option clicks; select and checkbox changes; page changes; the tenant; the deployed UI build (the
+  hashed `digit-ui.<hash>.bundle.js` name, which changes with every deploy); Chrome version and OS.
   Events start 1 minute before you press Start, so errors from page load are included.
 - **Never captured:** request bodies (they contain the auth token), what you type into text fields, and audio.
 - **Redaction:** tokens, JWTs, passwords, OTPs, phone numbers, emails, personal-data fields and non-essential query
   parameters are masked automatically. Free text and the video can't be redacted, so check them before filing.
-- **Storage:** only the last 10 reports are kept, in the extension's own storage.
+- **Storage:** only the last 10 reports (with their video) are kept, in the extension's own storage. Tracker rows
+  are small and are kept until you remove them.
 
 ## Limits
-- The UI build/image tag isn't captured. Add it to the Environment line yourself if it matters.
+- The UI build is the bundle hash, not the image tag. To get the image tag, run
+  `~/.claude/skills/github-bug/scripts/envinfo.sh <page url>` (kubectl, read-only).
+- The tracker only notices **Create** when the issue is created in the tab the extension opened. For anything
+  else, use **Add issue by URL**.
 - GitHub's video limit is 10 MB on free plans. Two minutes is about 9 MB. The review page warns you if a video is larger.
 - If the repository shows a template chooser, pick **Blank issue**. If the upload fails, the banner gives you a
   download link so you can drag the file in yourself.
@@ -63,4 +133,4 @@ the repo; otherwise set them in the issue sidebar.
 
 ## Updating
 `git pull` in the folder (or download the ZIP again), then click the reload icon (↻) on **DIGIT Bug Reporter** in
-`chrome://extensions`.
+`chrome://extensions`. Updating from 0.1 keeps your saved reports.

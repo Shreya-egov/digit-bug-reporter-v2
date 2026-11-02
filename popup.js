@@ -75,4 +75,9 @@ $('stop').addEventListener('click', async () => {
   window.close();
 });
 
+$('tracker').addEventListener('click', async () => {
+  await chrome.tabs.create({ url: chrome.runtime.getURL('tracker.html') });
+  window.close();
+});
+
 render();

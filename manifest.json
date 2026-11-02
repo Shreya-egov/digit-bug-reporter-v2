@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "DIGIT Bug Reporter",
-  "version": "0.1.0",
-  "description": "Record a DIGIT HCM console tab, capture failing API calls and console errors, and open a pre-filled GitHub issue for review.",
+  "version": "0.2.0",
+  "description": "Record a DIGIT HCM console tab, capture failing API calls and console errors, open a pre-filled GitHub issue for review, and track bugs through fix, PR and verification.",
   "minimum_chrome_version": "116",
   "action": {
     "default_popup": "popup.html",
@@ -21,7 +21,7 @@
     "service_worker": "background.js",
     "type": "module"
   },
-  "permissions": ["tabCapture", "offscreen", "storage", "activeTab", "scripting"],
+  "permissions": ["tabCapture", "offscreen", "storage", "activeTab", "scripting", "alarms"],
   "host_permissions": ["https://*.digit.org/*", "https://github.com/*"],
   "content_scripts": [
     {

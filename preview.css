@@ -29,7 +29,10 @@ input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-
 .hint { font-weight: 400; font-size: 13px; color: var(--muted); margin: -10px 0 14px; }
 label .hint { margin: 0; }
 .row.two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-@media (max-width: 600px) { .row.two { grid-template-columns: 1fr; } }
+.row.four { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+@media (max-width: 760px) { .row.four { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 600px) { .row.two, .row.four { grid-template-columns: 1fr; } }
+.nav { margin: 0 0 8px; font-size: 14px; }
 label.check { display: flex; gap: 10px; align-items: flex-start; font-weight: 400; background: var(--warn-bg); padding: 10px; border-radius: 6px; }
 label.check input { width: auto; margin-top: 4px; }
 figcaption input { display: inline; width: auto; margin: 0 4px 0 0; }

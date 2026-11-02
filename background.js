@@ -1,5 +1,8 @@
-// Service worker: keeps a rolling log of page events per tab, drives the recorder, and assembles the report.
+// Service worker: keeps a rolling log of page events per tab, drives the recorder, assembles the report, and keeps
+// the bug tracker in step with GitHub.
 import * as db from './db.js';
+import { parseIssueUrl, saveBug, syncAll, syncBug } from './bugs.js';
+import { getToken } from './github-api.js';
 
 const EVENTS_PER_TAB = 300;
 const LOOKBACK_MS = 60_000; // include events from just before Start (e.g. errors on page load)
@@ -64,9 +67,42 @@ async function ensureCapture(tabId) {
   }
 }
 
+const SYNC_ALARM = 'sync-bugs';
+const SYNC_MINUTES = 30;
+
 chrome.runtime.onInstalled.addListener(async () => {
+  chrome.alarms.create(SYNC_ALARM, { periodInMinutes: SYNC_MINUTES });
   for (const tab of await chrome.tabs.query({ url: 'https://*.digit.org/*' })) ensureCapture(tab.id);
 });
+
+// alarms are not guaranteed to survive a browser restart; creating it again replaces it
+chrome.runtime.onStartup.addListener(() => chrome.alarms.create(SYNC_ALARM, { periodInMinutes: SYNC_MINUTES }));
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === SYNC_ALARM) syncAll().catch((e) => console.warn('bug sync', e));
+});
+
+// Read in the page when capture finishes: events from page load may be older than the lookback window.
+// The UI build is the hashed name of the app bundle, which changes with every deploy.
+function readPage() {
+  let tenant = null;
+  try { tenant = localStorage.getItem('Employee.tenant-id'); } catch { /* storage blocked */ }
+  const bundles = [...document.scripts].map((s) => s.src).filter((src) => src.startsWith(location.origin))
+    .map((src) => new URL(src).pathname.split('/').pop()).filter((name) => /[.-][0-9a-f]{8,}(\.(bundle|chunk))?\.js$/.test(name));
+  // DIGIT UIs ship the app as digit-ui.<hash>.bundle.js; main.<hash>.js covers create-react-app builds
+  const build = bundles.find((n) => /^(digit-ui|main)[.-]/.test(n)) || null;
+  return { tenant, build };
+}
+
+async function pageInfo(tabId) {
+  const { os, arch } = await chrome.runtime.getPlatformInfo();
+  try {
+    const [{ result }] = await chrome.scripting.executeScript({ target: { tabId }, world: 'MAIN', func: readPage });
+    return { os, arch, ...result };
+  } catch {
+    return { os, arch }; // tab closed or navigated away
+  }
+}
 
 async function newReport(tab) {
   const report = { id: crypto.randomUUID(), createdAt: Date.now(), tabId: tab.id, tabUrl: tab.url || '', tabTitle: tab.title || '' };
@@ -76,10 +112,10 @@ async function newReport(tab) {
 }
 
 async function finishReport(id, tabId, since, screenshotPromise = screenshotOf(tabId)) {
-  const [screenshot, events] = await Promise.all([screenshotPromise, eventsSince(tabId, since - LOOKBACK_MS)]);
+  const [screenshot, events, info] = await Promise.all([screenshotPromise, eventsSince(tabId, since - LOOKBACK_MS), pageInfo(tabId)]);
   let tabUrl;
   try { tabUrl = (await chrome.tabs.get(tabId)).url; } catch { /* tab closed */ }
-  await db.update(id, { screenshot, events, startedAt: since, endedAt: Date.now(), ...(tabUrl && { tabUrl }) });
+  await db.update(id, { screenshot, events, pageInfo: info, startedAt: since, endedAt: Date.now(), ...(tabUrl && { tabUrl }) });
   await chrome.tabs.create({ url: chrome.runtime.getURL(`preview.html?id=${id}`) });
 }
 
@@ -136,6 +172,13 @@ async function githubPayload(id) {
   return { title: r.title, body: r.body, files, assignees: r.assignees || [] };
 }
 
+// github-attach.js saw the issue page that GitHub opens after Create.
+async function issueCreated(id, url) {
+  if (!parseIssueUrl(url)) throw new Error(`not an issue URL: ${url}`);
+  const bug = await saveBug(id, { issueUrl: url, issueState: 'open' }, `Issue created: ${url}`);
+  await syncBug(bug, await getToken()).catch(() => {}); // the next periodic sync retries
+}
+
 async function blobToBase64(blob) {
   const bytes = new Uint8Array(await blob.arrayBuffer());
   let bin = '';
@@ -164,6 +207,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return reply(snapshot(msg.tabId));
     case 'github-payload':
       return reply(githubPayload(msg.id).then((payload) => ({ payload })));
+    case 'issue-created':
+      return reply(issueCreated(msg.id, msg.url));
+    case 'sync-bugs':
+      return reply(syncAll());
   }
 });
 

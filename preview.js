@@ -1,18 +1,13 @@
 import * as db from './db.js';
 import { redact } from './redact.js';
-import { getToken, listAssignees, listRepos } from './github-api.js';
+import { getToken, listAssignees, listLabels, listRepos } from './github-api.js';
 import { createCombo } from './combo.js';
+import { createChipPicker } from './chips.js';
+import { ENVIRONMENTS, PRIORITIES, SEVERITIES, TYPES, saveBug } from './bugs.js';
 
 const $ = (id) => document.getElementById(id);
 const id = new URLSearchParams(location.search).get('id');
 
-const ENVIRONMENTS = {
-  'unified-qa.digit.org': 'qa',
-  'unified-uat.digit.org': 'uat',
-  'unified-dev.digit.org': 'dev',
-  'health-demo.digit.org': 'demo',
-  'hcm-demo.digit.org': 'demo',
-};
 const UI_REPO = 'egovernments/DIGIT-Frontend';
 const SERVICE_REPO = 'egovernments/health-campaign-services';
 const MAX_STEPS = 25;
@@ -21,20 +16,26 @@ const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
 const counts = {};
 const clean = (s) => redact(s, counts).text;
 
-function environmentLine(url, events) {
+const OS_NAMES = { linux: 'Linux', mac: 'macOS', win: 'Windows', cros: 'ChromeOS', android: 'Android' };
+
+const envName = (url) => { try { return ENVIRONMENTS[new URL(url).host] || new URL(url).host; } catch { return ''; } };
+
+// info: read from the page and the browser when capture finished (background.js pageInfo)
+function environmentLine(url, events, info = {}) {
   let u;
   try { u = new URL(url); } catch { return ''; }
   const env = ENVIRONMENTS[u.host];
-  const tenant = [...events].reverse().find((e) => e.kind === 'meta')?.tenant;
+  const tenant = info.tenant || [...events].reverse().find((e) => e.kind === 'meta')?.tenant;
   const campaign = u.searchParams.get('campaignNumber');
   const flow = u.searchParams.get('flow');
   const chrome = navigator.userAgent.match(/Chrome\/(\d+)/)?.[1];
+  const os = info.os && `${OS_NAMES[info.os] || info.os}${info.arch ? ` ${info.arch}` : ''}`;
   return [
     `${u.host}${env ? ` (${env})` : ''}`,
     tenant && `tenant ${tenant}`,
     campaign && `campaign ${campaign}${flow ? ` / flow ${flow}` : ''}`,
-    chrome && `Chrome ${chrome}`,
-    'UI build: not captured',
+    chrome && `Chrome ${chrome}${os ? ` on ${os}` : ''}`,
+    `UI build: ${info.build || 'not captured'}`,
   ].filter(Boolean).join(', ');
 }
 
@@ -82,8 +83,12 @@ function evidenceText(events) {
 function suggestRepo(events) {
   const svc = events.find((e) => e.kind === 'network' && e.status >= 500 && /\/_(search|create|update|delete)|\/v\d\//.test(e.url));
   return svc
-    ? [SERVICE_REPO, `Suggested because ${svc.method} ${svc.url.split('?')[0]} returned ${svc.status}.`]
-    : [UI_REPO, 'Suggested because no HCM service returned a 5xx error. Change it if the data saved is wrong.'];
+    ? [SERVICE_REPO, `Suggested because ${svc.method} ${svc.url.split('?')[0]} returned ${svc.status}.`, 'API']
+    : [UI_REPO, 'Suggested because no HCM service returned a 5xx error. Change it if the data saved is wrong.', 'UI'];
+}
+
+function fillSelect(select, values, selected) {
+  select.replaceChildren(...values.map((v) => Object.assign(document.createElement('option'), { textContent: v, selected: v === selected })));
 }
 
 function componentOf(url) {
@@ -98,12 +103,13 @@ function buildBody() {
   return [
     `**Environment:** ${v('env')}\n`,
     section('Summary', v('summary')),
+    section('Preconditions', v('preconditions')),
     section('Steps to reproduce', v('steps')),
     section('Expected', v('expected')),
     section('Actual', v('actual')),
     section('Evidence', `${media ? `The ${media} ${media.includes(' and ') ? 'are' : 'is'} attached below.\n\n` : ''}\`\`\`text\n${v('evidence')}\n\`\`\``),
     section('Notes', v('notes')),
-    `**Severity:** ${v('severity')}   **Component:** ${v('component') || 'not set'}`,
+    `**Severity:** ${v('severity')}   **Priority:** ${v('priority')}   **Type:** ${v('type')}   **Component:** ${v('component') || 'not set'}`,
     '',
     '<sub>Captured with DIGIT Bug Reporter. Evidence was redacted automatically and reviewed by the reporter.</sub>',
     '',
@@ -131,12 +137,12 @@ async function loadRepos() {
   repoCombo.refresh();
 }
 
-// Assignees are not carried over between reports: pre-filled people from an old report were surprising.
+// Assignees and labels are not carried over between reports: pre-filled people from an old report were surprising.
 // Only reopening the same report brings back its own picks. Clears what older versions remembered.
 chrome.storage.local.remove('lastChoice');
-const ownPicks = (repo) => (report?.repo === repo ? report.assignees || [] : []);
+const ownPicks = (repo, field) => (report?.repo === repo ? report[field] || [] : []);
 
-// Setting the field fires 'change', which reloads assignees and re-checks the field.
+// Setting the field fires 'change', which reloads assignees and labels and re-checks the field.
 function setRepo(value) {
   $('repo').value = value;
   $('repo').dispatchEvent(new Event('change'));
@@ -156,96 +162,44 @@ const repoCombo = createCombo({
   emptyText: (q) => (q ? `No listed repo matches "${q}". Press Enter to use it as typed (owner/name).` : 'Loading repos…'),
 });
 
-// ---- Assignees: the dropdown closes after each pick; picked people show as removable chips ----
 const MAX_ASSIGNEES = 10; // GitHub's limit per issue
-let people = [];
-let picked = [];
-
-const assigneeCombo = createCombo({
-  input: $('assigneeInput'),
-  listbox: $('assigneeOptions'),
-  toggle: $('assigneeToggle'),
-  container: $('assigneeCombo'),
-  items: () => people.filter((login) => !picked.includes(login)),
-  onPick: pick,
-  emptyText: (q) => (q ? `Nobody matches "${q}".` : people.length ? 'Everyone is already picked.' : 'Nobody can be assigned in this repo.'),
+const assignees = createChipPicker({
+  prefix: 'assignee',
+  max: MAX_ASSIGNEES,
+  maxText: (n) => `GitHub allows at most ${n} assignees.`,
+  placeholder: { none: 'Search people…', some: 'Add another person…', full: `Limit of ${MAX_ASSIGNEES} reached` },
+  emptyText: (q, all) => (q ? `Nobody matches "${q}".` : all.length ? 'Everyone is already picked.' : 'Nobody can be assigned in this repo.'),
+  noneText: 'Nobody can be assigned in this repo.',
+  splitText: (text) => text.split(/[\s,]+/).map((s) => s.replace(/^@/, '')).filter(Boolean),
 });
 
-function pick(login) {
-  if (picked.length >= MAX_ASSIGNEES) {
-    $('assigneeHint').textContent = `GitHub allows at most ${MAX_ASSIGNEES} assignees.`;
-  } else if (!picked.includes(login)) {
-    picked.push(login);
-  }
-  $('assigneeInput').value = '';
-  renderChips();
-}
-
-function unpick(login) {
-  picked = picked.filter((l) => l !== login);
-  $('assigneeHint').textContent = '';
-  renderChips();
-  assigneeCombo.refresh(); // they're pickable again
-}
-
-function renderChips() {
-  $('assigneeChips').replaceChildren(...picked.map((login) => {
-    const li = document.createElement('li');
-    const remove = Object.assign(document.createElement('button'), { type: 'button', textContent: '×' });
-    remove.setAttribute('aria-label', `Remove ${login}`);
-    remove.addEventListener('click', () => { unpick(login); $('assigneeInput').focus(); });
-    li.append(login, remove);
-    return li;
-  }));
-  // the list closes after each pick, so say that more people can be added
-  $('assigneeInput').placeholder = picked.length >= MAX_ASSIGNEES ? `Limit of ${MAX_ASSIGNEES} reached`
-    : picked.length ? 'Add another person…' : 'Search people…';
-  updateAssigneeCount();
-}
-
-function useAssigneeText(hint, value = []) {
-  assigneeCombo.close();
-  $('assigneeCombo').hidden = true;
-  $('assigneeChips').hidden = true;
-  $('assigneeText').hidden = false;
-  $('assigneeText').value = value.join(', ');
-  $('assigneeHint').textContent = hint;
-  $('assigneeCount').textContent = '';
-}
-
-function renderAssignees(logins, selected) {
-  people = logins;
-  picked = selected.filter((l) => logins.includes(l));
-  $('assigneeInput').value = '';
-  assigneeCombo.close();
-  $('assigneeCombo').hidden = false;
-  $('assigneeChips').hidden = false;
-  $('assigneeText').hidden = true;
-  $('assigneeHint').textContent = logins.length ? '' : 'Nobody can be assigned in this repo.';
-  renderChips();
-}
-
-function updateAssigneeCount() {
-  const n = assigneeValues().length;
-  $('assigneeCount').textContent = n ? `· ${n} selected` : '';
-}
-
-const assigneeValues = () => ($('assigneeText').hidden
-  ? [...picked]
-  : $('assigneeText').value.split(/[\s,]+/).map((s) => s.replace(/^@/, '')).filter(Boolean));
+const labels = createChipPicker({
+  prefix: 'label',
+  max: 20,
+  maxText: (n) => `At most ${n} labels.`,
+  placeholder: { none: 'Search labels…', some: 'Add another label…', full: 'Limit reached' },
+  emptyText: (q, all) => (q ? `No label matches "${q}".` : all.length ? 'Every label is already picked.' : 'This repo has no labels.'),
+  noneText: 'This repo has no labels.',
+  // label names can contain spaces, so only commas separate them
+  splitText: (text) => text.split(',').map((s) => s.trim()).filter(Boolean),
+});
 
 async function loadRepoFields() {
   const repo = $('repo').value.trim();
-  if (!REPO_RE.test(repo)) return;
+  // Enter, then blur, both fire 'change': reloading the same repo shifts the layout under the next click
+  if (!REPO_RE.test(repo) || repo === currentRepo) return;
   currentRepo = repo;
   const load = ++fieldsLoad; // a slower lookup for a previous repo must not overwrite this one
-  $('assigneeHint').textContent = 'Loading people…';
-  try {
-    const logins = await listAssignees(repo, token);
-    if (load === fieldsLoad) renderAssignees(logins, ownPicks(repo));
-  } catch (err) {
-    if (load === fieldsLoad) useAssigneeText(`Couldn't list people (${err.message}). Type GitHub usernames instead.`, ownPicks(repo));
-  }
+  assignees.loading('Loading people…');
+  labels.loading('Loading labels…');
+  await Promise.all([
+    listAssignees(repo, token).then(
+      (logins) => { if (load === fieldsLoad) assignees.setOptions(logins, ownPicks(repo, 'assignees')); },
+      (err) => { if (load === fieldsLoad) assignees.useText(`Couldn't list people (${err.message}). Type GitHub usernames instead.`, ownPicks(repo, 'assignees')); }),
+    listLabels(repo, token).then(
+      (names) => { if (load === fieldsLoad) labels.setOptions(names, ownPicks(repo, 'labels')); },
+      (err) => { if (load === fieldsLoad) labels.useText(`Couldn't list labels (${err.message}). Type label names instead.`, ownPicks(repo, 'labels')); }),
+  ]);
 }
 
 async function initGithubFields() {
@@ -257,10 +211,6 @@ async function initGithubFields() {
   conn.append(link);
 
   $('repo').addEventListener('change', loadRepoFields);
-  // Backspace in the empty field removes the last picked person
-  $('assigneeInput').addEventListener('keydown', (e) => {
-    if (e.key === 'Backspace' && !$('assigneeInput').value && picked.length) unpick(picked[picked.length - 1]);
-  });
   await Promise.all([loadRepos(), loadRepoFields()]);
 }
 
@@ -271,7 +221,7 @@ const CHECKS = [
   ['repo', () => REPO_RE.test($('repo').value.trim()) || 'Pick a repository in the form owner/name, e.g. egovernments/DIGIT-Frontend.'],
   ['assigneeText', () => {
     if ($('assigneeText').hidden) return true;
-    const bad = assigneeValues().filter((l) => !LOGIN_RE.test(l));
+    const bad = assignees.values().filter((l) => !LOGIN_RE.test(l));
     return !bad.length || `Not a GitHub username: ${bad.join(', ')}.`;
   }],
   ['title', () => !!$('title').value.trim() || 'Add a title.'],
@@ -352,10 +302,13 @@ if (!report) {
     $('includeShot').checked = false;
   }
 
-  const [repo, why] = suggestRepo(events);
+  const [repo, why, type] = suggestRepo(events);
   $('repo').value = report.repo || repo;
   $('repoWhy').textContent = why;
-  $('env').value = environmentLine(report.tabUrl, events);
+  fillSelect($('type'), TYPES, report.type || type);
+  fillSelect($('severity'), SEVERITIES, report.severity || 'Medium');
+  fillSelect($('priority'), PRIORITIES, report.priority || 'P2');
+  $('env').value = environmentLine(report.tabUrl, events, report.pageInfo);
   $('steps').value = draftSteps(tabUrl, events);
   $('evidence').value = evidenceText(events);
   $('component').value = componentOf(report.tabUrl);
@@ -385,19 +338,28 @@ if (!report) {
     }
     try {
       const repo = $('repo').value.trim();
-      const assignees = assigneeValues();
-      await db.update(id, {
+      const fields = {
         title: $('title').value.trim(),
-        body: buildBody(),
         repo,
-        assignees,
+        assignees: assignees.values(),
+        labels: labels.values(),
+        type: $('type').value,
+        severity: $('severity').value,
+        priority: $('priority').value,
+      };
+      await db.update(id, {
+        ...fields,
+        body: buildBody(),
         includeVideo: $('includeVideo').checked,
         includeScreenshot: $('includeShot').checked,
       });
       report = await db.get(id);
-      // GitHub's new-issue URL pre-selects assignees (applied only if you have triage/write access)
+      // The tracker row; github-attach.js adds the issue URL once the issue is created.
+      await saveBug(id, { ...fields, env: envName(report.tabUrl), reportedAt: report.createdAt }, 'Opened on GitHub for review');
+      // GitHub's new-issue URL pre-selects assignees and labels (applied only if you have triage/write access)
       const params = new URLSearchParams();
-      if (assignees.length) params.set('assignees', assignees.join(','));
+      if (fields.assignees.length) params.set('assignees', fields.assignees.join(','));
+      if (fields.labels.length) params.set('labels', fields.labels.join(','));
       const query = params.toString();
       // tabs.create, not window.open: a popup blocker can swallow window.open after the await above
       await chrome.tabs.create({ url: `https://github.com/${repo}/issues/new${query ? `?${query}` : ''}#digitbug=${id}` });

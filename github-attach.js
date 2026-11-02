@@ -1,7 +1,9 @@
 // On github.com/<repo>/issues/new#digitbug=<id>: fill in the reviewed title and body and upload the media.
-// Never clicks Create; the user does that after checking the form.
+// Never clicks Create; the user does that after checking the form. When the user does, GitHub opens the new
+// issue in the same tab, and its URL goes to the bug tracker.
 (() => {
   const KEY = 'digitbug-pending';
+  const CREATED_KEY = 'digitbug-created'; // { id, repoPath } while waiting for the user to click Create
   const UPLOAD_TIMEOUT_MS = 120_000;
 
   const hashId = location.hash.match(/digitbug=([\w-]+)/)?.[1];
@@ -100,6 +102,18 @@
     }
   }
 
+  // After Create, GitHub shows /<owner>/<repo>/issues/<number> in this tab.
+  async function noteCreated() {
+    let waiting;
+    try { waiting = JSON.parse(sessionStorage.getItem(CREATED_KEY)); } catch { return; }
+    const m = waiting && location.pathname.match(/^(\/[^/]+\/[^/]+)\/issues\/(\d+)\/?$/);
+    if (!m || m[1].toLowerCase() !== waiting.repoPath.toLowerCase()) return;
+    sessionStorage.removeItem(CREATED_KEY);
+    const res = await chrome.runtime.sendMessage({ type: 'issue-created', id: waiting.id, url: `https://github.com${m[0]}` });
+    say(res?.ok ? `issue #${m[2]} added to the bug tracker.` : `couldn't add issue #${m[2]} to the tracker (${res?.error}). Add it there by URL.`,
+      res?.ok ? 'ok' : 'warn');
+  }
+
   let busy = false;
   async function run() {
     const id = sessionStorage.getItem(KEY);
@@ -129,6 +143,8 @@
         return;
       }
       sessionStorage.removeItem(KEY); // fill once; a reload won't overwrite edits
+      const repoPath = location.pathname.replace(/\/issues\/new.*$/, '');
+      sessionStorage.setItem(CREATED_KEY, JSON.stringify({ id, repoPath }));
 
       setText(title, payload.title);
       setText(body, payload.body);
@@ -157,6 +173,6 @@
   const watch = setInterval(() => {
     // after the extension is reloaded this copy is cut off; stop instead of throwing "Extension context invalidated"
     if (!chrome.runtime?.id) { clearInterval(watch); return; }
-    if (location.href !== lastHref) { lastHref = location.href; run().catch(() => {}); }
+    if (location.href !== lastHref) { lastHref = location.href; noteCreated().catch(() => {}); run().catch(() => {}); }
   }, 1000);
 })();
