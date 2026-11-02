@@ -110,6 +110,39 @@ It never merges.
 A browser extension can't edit code, run tests or push, which is why this part runs in Claude Code and not in
 Chrome.
 
+## Automatic diagnosis of new frontend bugs
+`automation/auto-triage.sh` diagnoses each new DIGIT-Frontend issue you file (from the extension or by hand) without
+you starting it, and changes nothing.
+
+- Every 15 minutes (systemd user timer) it looks for new open issues in `egovernments/DIGIT-Frontend` that you
+  opened in the last 2 days. It diagnoses at most 3 per run.
+- For each one, Claude Code runs `fix-ui-bug` in **diagnose mode**: issue and screenshots, deployed build, MDMS records
+  (read-only), and the code. It writes `~/digit-bug-triage/DIGIT-Frontend-<n>/`:
+  - `report.md`: the first line is the verdict (MDMS data / code / both / backend / ...), followed by the evidence;
+  - `comment.md`: a draft comment for the issue;
+  - `mdms/`: the backup and dry-run diff of any proposed MDMS change.
+- You get a desktop notification with the verdict.
+
+It is **read-only by construction**:
+- **Permissions:** the run uses an allowlist of read commands, and anything else is denied because nobody is there to
+  approve it.
+- **MDMS:** diffs go through `mdms-dryrun.sh`, which has no apply path.
+- **Network:** GitHub reads go through `gh-get.sh`, which can only send GET requests to api.github.com, and the GitHub
+  token is removed from the run's environment.
+- **Files:** it can only write inside the report folder.
+
+Issue text is treated as data. To apply a fix, run the normal interactive `/fix-ui-bug`, which asks for your yes at
+each write.
+
+```bash
+automation/auto-triage.sh https://github.com/egovernments/DIGIT-Frontend/issues/1234   # one issue, now
+automation/install.sh            # turn on the 15-minute timer
+automation/install.sh --remove   # turn it off
+```
+Settings (environment variables): `DIGIT_TRIAGE_AUTHOR` (default: your git user.name), `DIGIT_TRIAGE_REPO`,
+`DIGIT_TRIAGE_OUT`, `DIGIT_TRIAGE_SINCE_DAYS`, `DIGIT_TRIAGE_MAX`. Each diagnosis is a full Claude Code run and uses
+your Claude usage. The timer only runs while you're logged in to this machine.
+
 ## Connecting GitHub (optional)
 Without a token the review page lists the public `egovernments` repos and the people who can be assigned in the
 chosen repo. GitHub allows about 60 such lookups an hour without a token; lists are cached, so reopening a report
