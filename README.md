@@ -58,6 +58,8 @@ format.
 
 - **Synced from GitHub** every 30 minutes and on **Sync now**: issue state and assignees, the PR that mentions the
   issue (or one you set by hand), its reviewer, and its checks (**Tests**: Passed/Failed/Running).
+  GitHub only reveals a PR attached in the issue's **Development** sidebar (one that doesn't mention the issue) to a
+  token. Without one, the PR column says "linked (token needed)".
 - **Set by you** in a bug's **Open** dialog: type, severity, priority, environment, reviewer, test status, PR URL,
   MDMS change, **Mark fix in progress**, **Mark fixed by MDMS change** and **Mark verified**. Verifying is allowed once the fix is merged or the issue is closed
   as completed.

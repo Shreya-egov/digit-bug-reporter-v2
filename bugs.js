@@ -85,6 +85,23 @@ function bestPr(refs) {
   return [...refs].sort((a, b) => rank(a) - rank(b) || Date.parse(b.created_at) - Date.parse(a.created_at))[0];
 }
 
+// PRs attached in the issue's Development sidebar appear in REST only as a bare 'connected' event; GraphQL names
+// them (and PRs that close the issue), but GraphQL always needs a token.
+const LINKED_PRS = `query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { issue(number: $number) {
+  closedByPullRequestsReferences(first: 10, includeClosedPrs: true) { nodes { url state createdAt mergedAt } }
+  timelineItems(itemTypes: [CONNECTED_EVENT], last: 10) { nodes { ... on ConnectedEvent { subject { ... on PullRequest { url state createdAt mergedAt } } } } }
+} } }`;
+
+async function linkedPrs(repo, number, token) {
+  const [owner, name] = repo.split('/');
+  const { data } = await request('/graphql', token, { method: 'POST', body: JSON.stringify({ query: LINKED_PRS, variables: { owner, name, number } }) });
+  const issue = data.data?.repository?.issue;
+  if (!issue) throw new Error(data.errors?.[0]?.message || 'GitHub GraphQL returned no issue');
+  const prs = [...issue.closedByPullRequestsReferences.nodes, ...issue.timelineItems.nodes.map((n) => n.subject)].filter((p) => p?.url);
+  // same shape bestPr() ranks
+  return prs.map((p) => ({ html_url: p.url, state: p.state === 'OPEN' ? 'open' : 'closed', created_at: p.createdAt, pull_request: { merged_at: p.mergedAt } }));
+}
+
 function testStatusOf(runs) {
   if (!runs.length) return null;
   if (runs.some((r) => ['failure', 'timed_out', 'cancelled', 'action_required'].includes(r.conclusion))) return 'Failed';
@@ -115,9 +132,13 @@ export async function syncBug(b, token) {
   let pr = parsePrUrl(b.prUrl);
   if (!b.prSetByHand) {
     const { data: timeline } = await request(`/repos/${issue.repo}/issues/${issue.number}/timeline?per_page=100`, token);
-    const refs = timeline.filter((e) => e.event === 'cross-referenced' && e.source?.issue?.pull_request).map((e) => e.source.issue);
+    let refs = timeline.filter((e) => e.event === 'cross-referenced' && e.source?.issue?.pull_request).map((e) => e.source.issue);
+    const connected = timeline.some((e) => e.event === 'connected');
+    if (!refs.length && connected && token) refs = await linkedPrs(issue.repo, issue.number, token);
     const found = refs.length && bestPr(refs);
     if (found) pr = parsePrUrl(found.html_url);
+    // a PR is linked in the Development sidebar, but without a token GitHub won't say which
+    patch.prHidden = !found && connected && !token;
   }
   if (pr) {
     const { data: p } = await request(`/repos/${pr.repo}/pulls/${pr.number}`, token);

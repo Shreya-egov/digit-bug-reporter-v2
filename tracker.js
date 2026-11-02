@@ -85,7 +85,8 @@ function renderRows() {
       h('td', { textContent: b.priority || '' }),
       h('td', { textContent: (b.assignees || []).join(', ') }),
       h('td', { textContent: fixStatusOf(b) }),
-      h('td', {}, pr ? ext(b.prUrl, `#${pr.number}`) : ''),
+      h('td', {}, pr ? ext(b.prUrl, `#${pr.number}`)
+        : b.prHidden ? h('span', { className: 'hint', title: 'A PR is linked in the issue\'s Development sidebar. GitHub only names it to a signed-in token: connect one in Settings.', textContent: 'linked (token needed)' }) : ''),
       h('td', { textContent: b.testStatus || 'Not run' }),
       h('td', { textContent: day(b.reportedAt) }),
       h('td', {}, h('span', { className: `status s-${status.replace(/\W+/g, '-').toLowerCase()}`, textContent: status })),
