@@ -218,6 +218,9 @@ async function openBug(id) {
   $('bEnv').value = b.env || '';
   $('bReviewer').value = b.reviewer || '';
   $('bPr').value = b.prSetByHand ? b.prUrl : '';
+  $('bConfig').value = b.configFix || '';
+  $('bConfigFixed').textContent = b.configFixedAt ? 'Clear "fixed by MDMS change"' : 'Mark fixed by MDMS change';
+  $('bConfigFixed').disabled = !b.issueUrl;
   $('bPr').placeholder = !b.prSetByHand && b.prUrl ? `${b.prUrl} (found on GitHub)` : 'https://github.com/egovernments/DIGIT-Frontend/pull/1234';
   $('bFix').disabled = !b.issueUrl;
   $('bFix').title = b.issueUrl ? '' : 'Open the issue on GitHub first';
@@ -244,7 +247,7 @@ $('bugForm').addEventListener('submit', async (e) => {
   if (reviewer && !reviewer.split(/[\s,]+/).every((l) => LOGIN_RE.test(l))) return showError('bugError', 'Reviewer should be GitHub usernames.');
   const patch = {
     type: $('bType').value, severity: $('bSeverity').value, priority: $('bPriority').value,
-    env: $('bEnv').value.trim(), reviewer, testStatus: $('bTests').value,
+    env: $('bEnv').value.trim(), reviewer, testStatus: $('bTests').value, configFix: $('bConfig').value.trim(),
   };
   if (prUrl) Object.assign(patch, { prUrl, prSetByHand: true });
   else if (current.prSetByHand) Object.assign(patch, { prUrl: null, prState: null, prMergedAt: null, prSetByHand: false });
@@ -255,6 +258,17 @@ $('bugForm').addEventListener('submit', async (e) => {
     await openBug(current.id);
   }
   $('bugDialog').close();
+});
+
+$('bConfigFixed').addEventListener('click', () => {
+  if (current.configFixedAt) return change({ configFixedAt: null }, 'Fixed by MDMS change: cleared');
+  const what = $('bConfig').value.trim();
+  if (!what) {
+    showError('bugError', 'Say what was changed in MDMS first (env, schema, record, change), so the fix can be traced and undone.');
+    $('bConfig').focus();
+    return;
+  }
+  return change({ configFixedAt: Date.now(), configFix: what }, `Fixed by MDMS change: ${what}`);
 });
 
 $('bStarted').addEventListener('click', () => change(

@@ -27,6 +27,7 @@ export const parsePrUrl = (url) => { const m = PR_RE.exec(url || ''); return m &
 
 export function fixStatusOf(b) {
   if (b.prState === 'merged') return 'Merged';
+  if (b.configFixedAt && b.prState !== 'open') return 'MDMS updated';
   if (b.prState === 'open') return 'PR open';
   if (b.prState === 'closed') return 'PR closed';
   return b.fixStartedAt ? 'In progress' : 'Not started';
@@ -35,15 +36,16 @@ export function fixStatusOf(b) {
 export function statusOf(b) {
   if (!b.issueUrl) return 'Draft';
   if (b.verifiedAt) return b.issueState === 'closed' ? 'Verified & closed' : 'Verified';
-  if (b.prState === 'merged' || (b.issueState === 'closed' && b.issueStateReason !== 'not_planned')) return 'Fixed';
+  if (b.prState === 'merged' || b.configFixedAt || (b.issueState === 'closed' && b.issueStateReason !== 'not_planned')) return 'Fixed';
   if (b.issueState === 'closed') return 'Closed (not planned)';
   if (b.prState === 'open') return 'In review';
   if (b.fixStartedAt) return 'In progress';
   return 'Open';
 }
 
-// Fixed = the PR was merged or, without a PR, the issue was closed as completed.
-export const fixedAtOf = (b) => b.prMergedAt || (b.issueState === 'closed' && b.issueStateReason !== 'not_planned' ? b.closedAt : null) || null;
+// Fixed = the PR was merged, the MDMS config was corrected (no PR to find), or the issue was closed as completed.
+export const fixedAtOf = (b) => b.prMergedAt || b.configFixedAt
+  || (b.issueState === 'closed' && b.issueStateReason !== 'not_planned' ? b.closedAt : null) || null;
 
 export const isFinal = (b) => FINAL.includes(statusOf(b));
 

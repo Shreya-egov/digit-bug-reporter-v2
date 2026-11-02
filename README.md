@@ -11,8 +11,9 @@ uploads the media. You click **Create**.
 
 Each issue then goes into a **bug tracker** that follows it on GitHub: the PR that fixes it, the reviewer, the
 checks, and your verification. The tracker exports to Excel. For UI bugs, **Fix UI issue** hands the issue to
-Claude Code, which finds the root cause, fixes it on a new branch, adds and runs tests, and opens a PR for the
-reviewer you pick, asking you before each step that changes anything.
+Claude Code. Claude checks both the MDMS config the screen loads and the DIGIT-Frontend code, and fixes whichever is
+wrong: MDMS through a backed-up, diffed update; code on a new branch with tests and a PR for the reviewer you pick. It
+asks you before each change.
 
 ## Install (once)
 1. Get the code:
@@ -58,10 +59,10 @@ format.
 - **Synced from GitHub** every 30 minutes and on **Sync now**: issue state and assignees, the PR that mentions the
   issue (or one you set by hand), its reviewer, and its checks (**Tests**: Passed/Failed/Running).
 - **Set by you** in a bug's **Open** dialog: type, severity, priority, environment, reviewer, test status, PR URL,
-  **Mark fix in progress** and **Mark verified**. Verifying is allowed once the fix is merged or the issue is closed
+  MDMS change, **Mark fix in progress**, **Mark fixed by MDMS change** and **Mark verified**. Verifying is allowed once the fix is merged or the issue is closed
   as completed.
 - **Status** follows the bug through: Draft → Open → In progress → In review (PR open) → Fixed (PR merged) →
-  Verified → Verified & closed. "Closed (not planned)" is for issues closed without a fix.
+  Verified → Verified & closed. A bug fixed in MDMS is Fixed as soon as you mark it, even if a code PR is still open. "Closed (not planned)" is for issues closed without a fix.
 - **Log:** each bug's dialog lists what changed and when: status, fix, tests, edits, and the fix command.
 - Tiles at the top show total, open, in progress, fixed, verified & closed, and PRs awaiting review. Below them are
   counts by repository, environment, severity and owner.
@@ -85,15 +86,24 @@ In the tracker, open a bug that has a GitHub issue and click **Fix UI issue…**
 3. Click **Copy command and mark in progress** and paste the command into a terminal, for example:
    `claude --chrome "/fix-ui-bug https://github.com/egovernments/DIGIT-Frontend/issues/1234 repo=egovernments/DIGIT-Frontend reviewer=someone"`
 
-Claude Code (the `fix-ui-bug` skill, see Install step 6) reads the issue and its screenshots, reproduces the bug
-read-only, finds the root cause, and works in a **new git worktree on a new `fix/` branch**, so your own checkouts
-aren't touched. It asks before each step that changes anything:
-1. root cause and plan → before editing code;
-2. diff and test results → before committing and pushing the branch;
-3. PR text (issue link, root cause, changes, tests added, test results, evidence) → before creating the PR and
-   requesting the reviewer.
+Claude Code (the `fix-ui-bug` skill, see Install step 6) reads the issue and its screenshots, and reproduces the bug
+read-only. It then checks **both sides** before changing anything:
+- **MDMS config:** reads the records the screen loads (FormConfig, templates, masters, localisation) through the
+  `mdms-qa` and `app-config-check` skills. This is read-only, with no unfiltered searches on qa. It compares them
+  with the template, with a campaign or env where the screen works, and with what the code expects.
+- **Frontend code:** follows how DIGIT-Frontend reads and renders that data, without touching your checkout.
 
-It never merges. The PR mentions the issue, so the tracker picks it up on the next sync.
+It then tells you which side is wrong (data, code, or both, e.g. bad data the code should also have tolerated) and
+asks what to fix:
+- **MDMS fix:** backup → diff → your **yes for each record** → write as your own user → re-check in incognito. A
+  config fix has no PR, so afterwards fill in **MDMS change** on the bug in the tracker and click **Mark fixed by MDMS
+  change**. It counts as Fixed and appears in the Excel "MDMS change" column.
+- **Code fix:** a **new git worktree on a new `fix/` branch**, with tests that use the real MDMS record as the
+  fixture. It asks before committing and pushing, and again before creating the PR (issue link, root cause, changes,
+  tests, results, related config change, evidence) and requesting the reviewer. The PR mentions the issue, so the
+  tracker picks it up on the next sync.
+
+It never merges.
 
 A browser extension can't edit code, run tests or push, which is why this part runs in Claude Code and not in
 Chrome.

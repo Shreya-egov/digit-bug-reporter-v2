@@ -84,10 +84,13 @@
     </div>
     <label>PR URL <span class="hint">leave empty to use the PR that mentions the issue</span>
       <input id="bPr" placeholder="https://github.com/egovernments/DIGIT-Frontend/pull/1234" spellcheck="false" autocomplete="off"></label>
+    <label>MDMS change <span class="hint">for a config fix: env, schema, record and what changed</span>
+      <input id="bConfig" placeholder="qa · HCM-ADMIN-CONSOLE.FormConfig · HOUSEHOLDSTRATEGY.CMP-… · removed type=custom" spellcheck="false" autocomplete="off"></label>
     <p id="bugError" class="field-error" hidden></p>
     <div class="actions">
       <button type="submit" value="save" class="primary">Save</button>
       <button type="button" id="bFix">Fix UI issue…</button>
+      <button type="button" id="bConfigFixed"></button>
       <button type="button" id="bStarted"></button>
       <button type="button" id="bVerified"></button>
       <button type="button" id="bDelete" class="danger">Remove from tracker</button>
@@ -101,6 +104,8 @@
 <dialog id="fixDialog" aria-labelledby="fixTitle">
   <form method="dialog" id="fixForm">
     <h2 id="fixTitle">Fix UI issue with Claude Code</h2>
+    <p class="hint">Claude checks both the MDMS config the screen loads and the DIGIT-Frontend code, and tells you which
+      one is wrong before changing anything.</p>
     <p class="hint" id="fixIssue"></p>
     <label>Repository to fix <span class="hint">where the code change goes; may differ from where the issue was filed</span>
       <input id="fixRepo" list="repoList" spellcheck="false" autocomplete="off"></label>
@@ -112,9 +117,10 @@
     </div>
     <p class="hint" id="fixReviewerHint"></p>
     <p id="fixError" class="field-error" hidden></p>
-    <p>Run this in a terminal. Claude Code reads the issue and its evidence, finds the root cause in a separate git
-      worktree, makes the fix, writes tests and runs them. It then stops and shows you the diff and test results:
-      nothing is pushed and no PR is opened until you say yes. PRs are never merged.</p>
+    <p>Run this in a terminal. Claude Code reads the issue and its evidence, then checks the MDMS records (read-only)
+      and the code. A config fix is backed up and diffed, and written only after your yes for each record. A code
+      fix is made in a separate git worktree with tests: nothing is pushed and no PR is opened until you say yes.
+      PRs are never merged.</p>
     <pre id="fixCommand" class="command"></pre>
     <div class="actions">
       <button type="submit" value="copy" class="primary">Copy command and mark in progress</button>
