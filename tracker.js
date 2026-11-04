@@ -1,7 +1,7 @@
 import * as db from './db.js';
 import {
   PRIORITIES, SEVERITIES, STATUSES, TEST_STATUSES, TYPES,
-  fixStatusOf, fixedAtOf, isFinal, parseIssueUrl, parsePrUrl, saveBug, statusOf, syncBug,
+  CONFIDENT_VERDICTS, fixStatusOf, fixedAtOf, isFinal, parseIssueUrl, parsePrUrl, saveBug, statusOf, syncBug, verdictKind,
 } from './bugs.js';
 import { getToken, listAssignees, listRepos } from './github-api.js';
 import { buildWorkbook, linkWorkbook, linkedHandle, unlinkWorkbook, writeLinked } from './workbook.js';
@@ -61,7 +61,6 @@ function renderSummary() {
 
 // ---- automatic diagnosis (native host: automation/native-host) ----
 // Verdicts start with a category ("MDMS data - ..."); the table shows the category, the dialog the whole line.
-const verdictKind = (v = '') => v.split(/\s+[-–]\s+/)[0];
 
 function diagnosisText(d) {
   if (!d) return '';
@@ -80,6 +79,18 @@ function diagnosisCell(b) {
 
 let helperOk = false;
 
+// What diagnoses on this machine can check (automation/preflight.sh); missing pieces only narrow them.
+function capabilityText(c) {
+  if (!c) return '';
+  if (!c.claude) return 'Claude Code is not installed, so diagnoses can\'t run.';
+  const live = c.clusterContexts?.length && c.mdmsTools;
+  return [
+    'Diagnoses here use the MDMS records captured from the page',
+    live ? `, live MDMS and the deployed build on ${c.clusterContexts.join('/')}` : ' (no cluster access: deployed build and live MDMS not checked)',
+    c.clone ? ', and the local DIGIT-Frontend clone.' : ', and a read-only DIGIT-Frontend clone made on first use.',
+  ].join('');
+}
+
 async function showHelper() {
   const res = await chrome.runtime.sendMessage({ type: 'triage-ping' });
   helperOk = !!res?.ok;
@@ -87,12 +98,16 @@ async function showHelper() {
   $('helperCommand').textContent = command;
   $('helperInstall').hidden = helperOk;
   $('autoDiagnoseRow').hidden = !helperOk;
+  $('autoCommentRow').hidden = !helperOk;
   $('helperStatus').textContent = helperOk
-    ? `Diagnosis helper connected. Reports are saved in ${res.out}.`
+    ? `Diagnosis helper connected. Reports are saved in ${res.out}. ${capabilityText(res.capabilities)}`
     : 'Diagnosis helper not installed. To diagnose bugs automatically with Claude Code, run this once in the extension folder, then reload this page:';
-  const { autoDiagnose } = await chrome.storage.local.get('autoDiagnose');
+  const { autoDiagnose, autoComment } = await chrome.storage.local.get(['autoDiagnose', 'autoComment']);
   $('autoDiagnose').checked = autoDiagnose !== false;
+  $('autoComment').checked = autoComment !== false;
 }
+
+$('autoComment').addEventListener('change', () => chrome.storage.local.set({ autoComment: $('autoComment').checked }));
 
 $('autoDiagnose').addEventListener('change', () => chrome.storage.local.set({ autoDiagnose: $('autoDiagnose').checked }));
 $('copyHelper').addEventListener('click', () => navigator.clipboard.writeText($('helperCommand').textContent));
@@ -282,6 +297,11 @@ function renderDiagnosis(b) {
   $('bDiagnose').textContent = d?.state === 'done' || d?.state === 'failed' ? 'Diagnose again' : 'Diagnose now';
   $('bDiagnose').disabled = !b.issueUrl || !helperOk || d?.state === 'running';
   $('bDiagnose').title = helperOk ? '' : 'Install the diagnosis helper first (see the top of the page)';
+  $('bCommentLink').hidden = !d?.commentUrl;
+  if (d?.commentUrl) $('bCommentLink').href = d.commentUrl;
+  // posting by hand: when automatic posting is off, failed, or skipped a verdict you've checked yourself
+  $('bPost').hidden = d?.state !== 'done' || !!d.commentUrl;
+  $('bPost').textContent = CONFIDENT_VERDICTS.includes(verdictKind(d?.verdict)) ? 'Post comment for assignee' : 'Post comment anyway';
   $('bReportShow').hidden = d?.state !== 'done';
   $('bCommentCopy').hidden = d?.state !== 'done';
   $('bReport').hidden = true;
@@ -298,6 +318,15 @@ $('bDiagnose').addEventListener('click', async () => {
   $('bDiagnose').disabled = true;
   const res = await chrome.runtime.sendMessage({ type: 'diagnose', id: current.id, force: again });
   if (!res?.ok) showError('bugError', `Couldn't start the diagnosis: ${res?.error}`);
+  await load();
+  await openBug(current.id);
+});
+
+$('bPost').addEventListener('click', async () => {
+  $('bPost').disabled = true;
+  // you clicked after reading the report, so a verdict that isn't confident may be posted too
+  await chrome.runtime.sendMessage({ type: 'post-diagnosis', id: current.id, anyVerdict: true });
+  $('bPost').disabled = false;
   await load();
   await openBug(current.id);
 });

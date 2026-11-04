@@ -43,6 +43,10 @@ export function statusOf(b) {
   return 'Open';
 }
 
+// Automatic diagnosis verdicts start with a kind ("MDMS data - ..."); only confident kinds are posted on the issue.
+export const verdictKind = (v = '') => v.split(/\s+[-–]\s+/)[0].trim();
+export const CONFIDENT_VERDICTS = ['MDMS data', 'code', 'both', 'backend', 'environment'];
+
 // Fixed = the PR was merged, the MDMS config was corrected (no PR to find), or the issue was closed as completed.
 export const fixedAtOf = (b) => b.prMergedAt || b.configFixedAt
   || (b.issueState === 'closed' && b.issueStateReason !== 'not_planned' ? b.closedAt : null) || null;

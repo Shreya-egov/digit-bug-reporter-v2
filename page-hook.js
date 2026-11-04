@@ -1,6 +1,8 @@
 // Runs in the DIGIT page's own JS world from document_start. Records failing API calls, console errors
 // and the user's clicks/navigation, and hands them to relay.js. Never records request bodies (they carry
 // the auth token) or what is typed into text fields.
+// Also keeps the MDMS records the page loads (config, not personal data), which background.js reads when capture
+// stops. They go only to the local automatic diagnosis, never into the GitHub issue.
 (() => {
   if (window.__digitBugV2Hook) return;
   window.__digitBugV2Hook = true;
@@ -35,6 +37,36 @@
     return short(text, 200);
   };
 
+  // MDMS v2 search responses: newest copy of each record wins; oldest dropped beyond the size cap.
+  const MDMS_RE = /\/(mdms[\w-]*|egov-mdms-service)\/v2\/_search/;
+  const MDMS_MAX_RECORD = 1_500_000;
+  const MDMS_MAX_TOTAL = 6_000_000;
+  const mdms = new Map();
+  let mdmsBytes = 0;
+  const keepMdms = (text) => {
+    let res;
+    try { res = JSON.parse(text); } catch { return; }
+    for (const r of Array.isArray(res?.mdms) ? res.mdms : []) {
+      if (!r?.schemaCode || !r.uniqueIdentifier) continue;
+      const json = JSON.stringify({
+        schemaCode: r.schemaCode, uniqueIdentifier: r.uniqueIdentifier, tenantId: r.tenantId, isActive: r.isActive,
+        lastModifiedTime: r.auditDetails?.lastModifiedTime, data: r.data,
+      });
+      if (json.length > MDMS_MAX_RECORD) continue;
+      const key = `${r.schemaCode}|${r.uniqueIdentifier}`;
+      if (mdms.has(key)) mdmsBytes -= mdms.get(key).length;
+      mdms.delete(key); // re-insert so it counts as newest
+      mdms.set(key, json);
+      mdmsBytes += json.length;
+      while (mdmsBytes > MDMS_MAX_TOTAL) {
+        const [oldest, value] = mdms.entries().next().value;
+        mdms.delete(oldest);
+        mdmsBytes -= value.length;
+      }
+    }
+  };
+  window.__digitBugV2Mdms = () => [...mdms.values()];
+
   const fmt = (a) => {
     if (a instanceof Error) return `${a.name}: ${a.message}`;
     if (a && typeof a === 'object') { try { return JSON.stringify(a); } catch { return String(a); } }
@@ -61,6 +93,7 @@
     const url = pathOf(typeof input === 'string' ? input : input?.url ?? String(input));
     try {
       const res = await origFetch.apply(this, arguments);
+      if (res.status < 400 && MDMS_RE.test(url)) res.clone().text().then(keepMdms, () => {});
       if (res.status >= 400) {
         res.clone().text()
           .then((t) => post({ kind: 'network', method, url, status: res.status, error: errorSummary(t) }))
@@ -84,7 +117,11 @@
     const info = this.__digitBugV2;
     if (info) {
       this.addEventListener('loadend', () => {
-        if (this.status && this.status < 400) return;
+        if (this.status && this.status < 400) {
+          if (MDMS_RE.test(info.url) && (this.responseType === '' || this.responseType === 'text')) keepMdms(this.responseText);
+          else if (MDMS_RE.test(info.url) && this.responseType === 'json') keepMdms(JSON.stringify(this.response));
+          return;
+        }
         let text = '';
         try {
           if (this.responseType === '' || this.responseType === 'text') text = this.responseText;

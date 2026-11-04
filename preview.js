@@ -337,6 +337,11 @@ if (!report) {
   $('component').value = componentOf(report.tabUrl);
   if (report.title) $('title').value = report.title;
 
+  if (report.mdms?.length) {
+    $('mdmsNote').hidden = false;
+    $('mdmsNote').textContent = `${report.mdms.length} MDMS config records the page loaded were kept for the automatic diagnosis. `
+      + 'They stay on this computer and are not added to the issue.';
+  }
   const masked = Object.entries(counts).map(([k, n]) => `${n} ${k}`).join(', ');
   $('redactions').textContent = masked ? `Redacted automatically: ${masked}.` : 'Nothing needed redacting.';
   if (report.captureRestartedAt) {

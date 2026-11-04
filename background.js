@@ -1,8 +1,9 @@
 // Service worker: keeps a rolling log of page events per tab, drives the recorder, assembles the report, and keeps
 // the bug tracker in step with GitHub.
 import * as db from './db.js';
-import { parseIssueUrl, saveBug, syncAll, syncBug } from './bugs.js';
-import { getToken } from './github-api.js';
+import { CONFIDENT_VERDICTS, parseIssueUrl, saveBug, syncAll, syncBug, verdictKind } from './bugs.js';
+import { getToken, request } from './github-api.js';
+import { redact } from './redact.js';
 
 const EVENTS_PER_TAB = 300;
 const LOOKBACK_MS = 60_000; // include events from just before Start (e.g. errors on page load)
@@ -103,6 +104,48 @@ async function triageHost(msg) {
 
 const isFrontendBug = (b) => b.repo === UI_REPO || b.type === 'UI';
 const autoDiagnoseOn = async () => (await chrome.storage.local.get('autoDiagnose')).autoDiagnose !== false;
+const autoCommentOn = async () => (await chrome.storage.local.get('autoComment')).autoComment !== false;
+const LOGIN_RE = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
+
+// Post the diagnosis's drafted fix on the issue for its assignee: confident verdicts only, once per diagnosis.
+// Posted here, with the user's token, and not by the diagnosis run, which never holds a token.
+async function postDiagnosisComment(bug, anyVerdict = false) {
+  const d = bug.diagnosis;
+  if (d?.state !== 'done' || d.commentUrl) return;
+  if (!anyVerdict && !CONFIDENT_VERDICTS.includes(verdictKind(d.verdict))) {
+    await saveBug(bug.id, {}, `Diagnosis not posted: "${verdictKind(d.verdict)}" isn't a confident verdict. Check the report.`);
+    return;
+  }
+  const token = await getToken();
+  if (!token) {
+    await saveBug(bug.id, {}, 'Diagnosis not posted: connect a GitHub token with Issues write access in Settings.');
+    return;
+  }
+  const res = await triageHost({ type: 'report', url: bug.issueUrl });
+  if (!res.ok || !res.comment?.trim()) {
+    await saveBug(bug.id, {}, `Diagnosis not posted: no draft comment (${res.error || 'comment.md is empty'}).`);
+    return;
+  }
+  const mentions = (bug.assignees || []).filter((l) => LOGIN_RE.test(l)).map((l) => `@${l}`).join(' ');
+  const body = [
+    `${mentions ? `${mentions}: ` : ''}automated diagnosis of this issue. It is read-only: nothing was changed.`,
+    '',
+    `**Verdict:** ${redact(d.verdict).text}`,
+    '',
+    redact(res.comment.trim()).text.slice(0, 60_000),
+    '',
+    '<sub>Posted by DIGIT Bug Reporter v2 from a read-only Claude Code diagnosis. Please check it before applying.</sub>',
+  ].join('\n');
+  const issue = parseIssueUrl(bug.issueUrl);
+  try {
+    const { data } = await request(`/repos/${issue.repo}/issues/${issue.number}/comments`, token,
+      { method: 'POST', body: JSON.stringify({ body }) });
+    await saveBug(bug.id, { diagnosis: { ...d, commentUrl: data.html_url } }, `Diagnosis posted for the assignee: ${data.html_url}`);
+  } catch (err) {
+    const hint = /403|404|rejected/.test(err.message) ? ' The token needs Issues write access (Settings).' : '';
+    await saveBug(bug.id, {}, `Diagnosis not posted: ${err.message}.${hint} Use Copy draft comment instead.`);
+  }
+}
 
 // Record a status from the host on the bug; logs only real changes.
 async function applyDiagnosis(bug, s, note) {
@@ -117,15 +160,16 @@ async function applyDiagnosis(bug, s, note) {
   if (!note && prev.state === next.state && prev.verdict === next.verdict) return;
   const text = note || (next.state === 'done' ? `Diagnosis: ${next.verdict}`
     : next.state === 'failed' ? 'Diagnosis failed: see run.log in the report folder' : null);
-  await saveBug(bug.id, { diagnosis: next }, text);
+  const row = await saveBug(bug.id, { diagnosis: next }, text);
   if (next.state === 'running') chrome.alarms.create(DIAG_ALARM, { periodInMinutes: 0.5 });
+  if (next.state === 'done' && prev.state !== 'done' && await autoCommentOn()) await postDiagnosisComment(row);
 }
 
 async function startDiagnosis(id, force = false) {
   const bug = await db.bugs.get(id);
   if (!bug?.issueUrl) throw new Error('the bug has no GitHub issue yet');
   const report = await db.get(id); // gone if the report was pruned; frames are optional
-  const res = await triageHost({ type: 'diagnose', url: bug.issueUrl, force, frames: report?.frames || [] });
+  const res = await triageHost({ type: 'diagnose', url: bug.issueUrl, force, frames: report?.frames || [], mdms: report?.mdms || [] });
   if (!res.ok) {
     await saveBug(id, { diagnosis: { ...bug.diagnosis, state: res.missing ? 'no-helper' : 'error', error: res.error, at: Date.now() } },
       `Diagnosis not started: ${res.error}`);
@@ -155,7 +199,7 @@ function readPage() {
     .map((src) => new URL(src).pathname.split('/').pop()).filter((name) => /[.-][0-9a-f]{8,}(\.(bundle|chunk))?\.js$/.test(name));
   // DIGIT UIs ship the app as digit-ui.<hash>.bundle.js; main.<hash>.js covers create-react-app builds
   const build = bundles.find((n) => /^(digit-ui|main)[.-]/.test(n)) || null;
-  return { tenant, build };
+  return { tenant, build, mdms: window.__digitBugV2Mdms?.() || [] };
 }
 
 async function pageInfo(tabId) {
@@ -176,10 +220,10 @@ async function newReport(tab) {
 }
 
 async function finishReport(id, tabId, since, screenshotPromise = screenshotOf(tabId)) {
-  const [screenshot, events, info] = await Promise.all([screenshotPromise, eventsSince(tabId, since - LOOKBACK_MS), pageInfo(tabId)]);
+  const [screenshot, events, { mdms = [], ...info }] = await Promise.all([screenshotPromise, eventsSince(tabId, since - LOOKBACK_MS), pageInfo(tabId)]);
   let tabUrl;
   try { tabUrl = (await chrome.tabs.get(tabId)).url; } catch { /* tab closed */ }
-  await db.update(id, { screenshot, events, pageInfo: info, startedAt: since, endedAt: Date.now(), ...(tabUrl && { tabUrl }) });
+  await db.update(id, { screenshot, events, pageInfo: info, mdms, startedAt: since, endedAt: Date.now(), ...(tabUrl && { tabUrl }) });
   await chrome.tabs.create({ url: chrome.runtime.getURL(`preview.html?id=${id}`) });
 }
 
@@ -281,6 +325,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     case 'diagnosis-report':
       return reply(db.bugs.get(msg.id).then((b) => (b?.issueUrl ? triageHost({ type: 'report', url: b.issueUrl })
         : { ok: false, error: 'no GitHub issue' })).then((r) => { if (!r.ok) throw new Error(r.error); return r; }));
+    case 'post-diagnosis':
+      return reply(db.bugs.get(msg.id).then((b) => postDiagnosisComment(b, msg.anyVerdict === true)));
     case 'triage-ping':
       return reply(triageHost({ type: 'ping' }));
   }

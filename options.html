@@ -17,8 +17,10 @@
     <label>GitHub token
       <input id="token" type="password" autocomplete="off" spellcheck="false" placeholder="ghp_… or github_pat_…">
     </label>
-    <p class="hint">The token is only used to read lists from GitHub. It is stored in this Chrome profile only
-      (not synced) and is never put into an issue. Issues are still created by you on github.com.</p>
+    <p class="hint">The token is stored in this Chrome profile only (not synced) and never goes into an issue or to the
+      diagnosis run. It reads repo, people, label, issue and PR lists. If <strong>Post confident diagnoses</strong> is on
+      in the tracker, it also posts the diagnosis comment on the issue, so that needs <em>Issues: write</em>. Issues
+      themselves are still created by you on github.com.</p>
     <div class="actions">
       <button type="submit" class="primary">Save and test</button>
       <button type="button" id="remove" class="danger">Remove token</button>
@@ -28,9 +30,11 @@
 
   <h2>Creating a token</h2>
   <p><strong>Classic token</strong> (simplest): <a href="https://github.com/settings/tokens/new?description=DIGIT%20Bug%20Reporter&scopes=repo,read:org" target="_blank" rel="noopener">github.com/settings/tokens/new</a>
-    with the scopes <code>repo</code> (needed for private repos only) and <code>read:org</code>.</p>
+    with the scopes <code>public_repo</code> (or <code>repo</code> for private repos; either lets it post diagnosis
+    comments) and <code>read:org</code>.</p>
   <p><strong>Fine-grained token</strong>: <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">github.com/settings/personal-access-tokens/new</a>,
-    resource owner <code>egovernments</code>, repository permissions <em>Metadata</em> and <em>Issues</em>: read-only.
+    resource owner <code>egovernments</code>, repository permissions <em>Metadata</em> (read) and <em>Issues</em> (read, or read and write for automatic
+    diagnosis comments).
     The org may need to approve it.</p>
   <p>If the egovernments org uses SAML single sign-on, authorise the token for it (<em>Configure SSO</em> next to the token).</p>
 </main>

@@ -112,8 +112,11 @@ Chrome.
 
 ## Automatic diagnosis of new frontend bugs
 When you click **Create** on GitHub for a frontend bug (repo DIGIT-Frontend, or bug type UI), the extension starts a
-read-only diagnosis with Claude Code straight away. About 5 minutes later the bug's row in the tracker shows the
-verdict, for example "MDMS data" or "code".
+read-only diagnosis with Claude Code straight away. About 5 minutes later:
+- the bug's row in the tracker shows the verdict, for example "MDMS data" or "code";
+- if the verdict is confident, the proposed fix is **posted as a comment on the issue for its assignee**.
+
+Nothing is changed or pushed. The assignee applies the fix.
 
 **Set up once:** the tracker page shows a command with your extension's id. Run it in the extension folder, then
 reload the tracker:
@@ -123,22 +126,42 @@ automation/native-host/install.sh <extension id>   # registers the diagnosis hel
 The tracker then says *Diagnosis helper connected*, with a switch for automatic diagnosis (on by default).
 
 **What happens on Create**
-1. The extension sends the issue URL, and about 12 frames of your recording, to the helper. The frames are taken when
-   you press Open on GitHub.
+1. The extension sends the helper three things. They stay on this computer and never go into the issue:
+   - the issue URL;
+   - about 12 frames of your recording, taken when you press Open on GitHub;
+   - the **MDMS records the console loaded** while you captured the bug: the exact config the screen used. This needs
+     no cluster access.
 2. The helper starts `automation/auto-triage.sh <url>`. Claude Code runs `fix-ui-bug` in **diagnose mode**:
    - the issue, the screenshot and the recording frames;
    - the deployed build (kubectl);
    - the MDMS records the screen uses (read-only, filtered);
    - the code at the deployed commit;
    - recent template history;
-   - `known-causes.md`, the verdicts from earlier bugs, so repeats are recognised quickly.
+   - `known-causes.md`, the verdicts from earlier bugs, so repeats are recognised quickly;
+   - `claude-skills/fix-ui-bug/digit-frontend-map.md`, which maps route → component → file and MDMS schema → code.
+     Regenerate it with `automation/build-code-map.py` after big merges.
 3. Results go to `~/digit-bug-triage/<repo>-<n>/`:
    - `report.md`, whose first line is the verdict;
    - `comment.md`, a draft comment for the issue;
    - `mdms/`, with the dry-run diff of any proposed MDMS change.
 4. The tracker shows the verdict in the **Diagnosis** column and logs it on the bug. A desktop notification appears
-   too. In the bug's dialog: **View report**, **Copy draft comment**, **Diagnose again**. Bugs added by URL can use
-   **Diagnose now**.
+   too.
+5. **Comment for the assignee.** If the verdict is confident (MDMS data, code, both, backend, environment), the
+   extension posts `comment.md` on the issue. The comment mentions the assignee and holds the cause and the proposed
+   fix: the exact MDMS JSON to add or change, or a code diff, plus what wasn't verified. It is redacted first and
+   posted once.
+   - "Unclear" and "not reproducible" verdicts are never posted automatically.
+   - The post uses your token from Settings, which needs **Issues: write**. The diagnosis run itself never gets a
+     token.
+   - Turn it off with **Post confident diagnoses** in the tracker.
+   - In the bug's dialog: **View report**, **Copy draft comment**, **Post comment** (by hand, e.g. after reading an
+     unclear one), **Diagnose again**. Bugs added by URL can use **Diagnose now**.
+
+**Without cluster access** the diagnosis still works. It uses the records captured from the page, the code map, and
+a read-only DIGIT-Frontend clone, which it makes on first use if there is none. Everything it couldn't check is named
+in the verdict (" · limits: deployed build unknown, no live MDMS"). The tracker's helper line shows what this machine
+can check (`automation/preflight.sh`). People with kubectl contexts and the `mdms-qa`, `app-config-check` and
+`github-bug` skills also get the deployed build and live MDMS reads.
 
 **Read-only by construction**
 - **Permissions:** the run uses an allowlist of read commands, and anything else is denied because nobody is there to

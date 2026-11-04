@@ -4,7 +4,7 @@
 Lets the extension start a read-only diagnosis (../auto-triage.sh) the moment an issue is created, and read the
 result back for the tracker. It accepts only these requests, each with GitHub issue URLs checked against a pattern:
   {"type": "ping"}
-  {"type": "diagnose", "url": ..., "force": bool, "frames": [base64 jpeg, ...]}
+  {"type": "diagnose", "url": ..., "force": bool, "frames": [base64 jpeg, ...], "mdms": [record json, ...]}
   {"type": "status", "urls": [...]}
   {"type": "report", "url": ...}
 """
@@ -17,6 +17,9 @@ URL_RE = re.compile(r"^https://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)/i
 MAX_TEXT = 200_000      # Chrome drops replies over 1 MB
 MAX_FRAMES = 24
 START_GRACE_S = 60
+MAX_MDMS_RECORDS = 400
+MAX_MDMS_BYTES = 8_000_000
+SAFE_NAME = re.compile(r"[^A-Za-z0-9_.-]+")
 MAX_FRAME_BYTES = 400_000
 VERSION = 1
 
@@ -82,6 +85,32 @@ def save_frames(d, frames):
             f.write(data)
 
 
+def save_mdms(d, records):
+    """MDMS records the console loaded while the bug was captured: exactly what the screen used."""
+    parsed, total = [], 0
+    for text in records[:MAX_MDMS_RECORDS]:  # check everything before writing anything
+        total += len(text)
+        if total > MAX_MDMS_BYTES:
+            break
+        r = json.loads(text)
+        if not (isinstance(r, dict) and isinstance(r.get("schemaCode"), str) and isinstance(r.get("uniqueIdentifier"), str)):
+            raise ValueError("MDMS records must have schemaCode and uniqueIdentifier")
+        parsed.append(r)
+    mdir = os.path.join(d, "mdms-from-page")
+    os.makedirs(mdir, exist_ok=True)
+    for old in os.listdir(mdir):
+        os.remove(os.path.join(mdir, old))
+    index = []
+    for r in parsed:
+        name = SAFE_NAME.sub("_", f"{r['schemaCode']}__{r['uniqueIdentifier']}")[:180] + ".json"
+        with open(os.path.join(mdir, name), "w", encoding="utf-8") as f:
+            json.dump(r, f, indent=1, ensure_ascii=False)
+        index.append(f"| {r['schemaCode']} | {r['uniqueIdentifier']} | {r.get('lastModifiedTime') or ''} | {name} |")
+    with open(os.path.join(mdir, "INDEX.md"), "w", encoding="utf-8") as f:
+        f.write("MDMS records the console loaded while the bug was captured (as of capture time).\n\n"
+                "| schemaCode | uniqueIdentifier | lastModifiedTime | file |\n|---|---|---|---|\n" + "\n".join(index) + "\n")
+
+
 def diagnose(msg):
     url = msg.get("url")
     d = issue_dir(url)
@@ -97,6 +126,8 @@ def diagnose(msg):
                 os.rename(p, os.path.join(d, f"{name[:-3]}.{stamp}.md"))
     if msg.get("frames"):
         save_frames(d, msg["frames"])
+    if msg.get("mdms"):
+        save_mdms(d, msg["mdms"])
     env = dict(os.environ)
     # Chrome starts hosts with a minimal PATH
     env["PATH"] = os.pathsep.join([os.path.expanduser("~/.local/bin"), "/usr/local/bin", "/usr/bin", "/bin", env.get("PATH", "")])
@@ -117,7 +148,12 @@ def report(url):
 def handle(msg):
     kind = msg.get("type")
     if kind == "ping":
-        return {"version": VERSION, "out": OUT}
+        try:
+            caps = json.loads(subprocess.run([os.path.join(os.path.dirname(HERE), "preflight.sh")], capture_output=True,
+                                             text=True, timeout=20).stdout)
+        except Exception:
+            caps = None
+        return {"version": VERSION, "out": OUT, "capabilities": caps}
     if kind == "diagnose":
         return diagnose(msg)
     if kind == "status":

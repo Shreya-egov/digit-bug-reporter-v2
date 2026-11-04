@@ -26,7 +26,9 @@
   <div id="helper" class="helper">
     <p id="helperStatus" class="hint"></p>
     <label class="inline" id="autoDiagnoseRow" hidden><input type="checkbox" id="autoDiagnose">
-      Diagnose new frontend bugs automatically when you click Create (read-only: nothing is posted or changed)</label>
+      Diagnose new frontend bugs automatically when you click Create (read-only: nothing is changed)</label>
+    <label class="inline" id="autoCommentRow" hidden><input type="checkbox" id="autoComment">
+      Post confident diagnoses on the issue for its assignee (needs a GitHub token with Issues write access)</label>
     <div id="helperInstall" hidden>
       <pre id="helperCommand" class="command"></pre>
       <button type="button" id="copyHelper">Copy command</button>
@@ -88,6 +90,8 @@
         <button type="button" id="bDiagnose"></button>
         <button type="button" id="bReportShow" hidden>View report</button>
         <button type="button" id="bCommentCopy" hidden>Copy draft comment</button>
+        <button type="button" id="bPost" hidden>Post comment for assignee</button>
+        <a id="bCommentLink" target="_blank" rel="noopener" hidden>Posted comment ↗</a>
       </div>
       <pre id="bReport" class="report" hidden></pre>
     </section>
