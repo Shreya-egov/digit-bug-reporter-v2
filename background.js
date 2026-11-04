@@ -76,11 +76,75 @@ chrome.runtime.onInstalled.addListener(async () => {
 });
 
 // alarms are not guaranteed to survive a browser restart; creating it again replaces it
-chrome.runtime.onStartup.addListener(() => chrome.alarms.create(SYNC_ALARM, { periodInMinutes: SYNC_MINUTES }));
+chrome.runtime.onStartup.addListener(() => {
+  chrome.alarms.create(SYNC_ALARM, { periodInMinutes: SYNC_MINUTES });
+  checkDiagnoses().catch(() => {}); // pick up runs that finished while Chrome was closed
+});
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === SYNC_ALARM) syncAll().catch((e) => console.warn('bug sync', e));
+  if (alarm.name === DIAG_ALARM) checkDiagnoses().catch((e) => console.warn('diagnosis status', e));
 });
+
+// ---- automatic diagnosis through the native host (automation/native-host) ----
+// The host starts automation/auto-triage.sh, a read-only Claude Code diagnosis, and reports its verdict.
+const TRIAGE_HOST = 'org.digit.bug_triage';
+const DIAG_ALARM = 'diagnosis-status';
+const UI_REPO = 'egovernments/DIGIT-Frontend';
+
+async function triageHost(msg) {
+  try {
+    const res = await chrome.runtime.sendNativeMessage(TRIAGE_HOST, msg);
+    return res?.ok ? res : { ok: false, error: res?.error || 'no answer from the diagnosis helper' };
+  } catch (e) {
+    return { ok: false, missing: /not found|forbidden|access/i.test(e.message), error: e.message };
+  }
+}
+
+const isFrontendBug = (b) => b.repo === UI_REPO || b.type === 'UI';
+const autoDiagnoseOn = async () => (await chrome.storage.local.get('autoDiagnose')).autoDiagnose !== false;
+
+// Record a status from the host on the bug; logs only real changes.
+async function applyDiagnosis(bug, s, note) {
+  const prev = bug.diagnosis || {};
+  const next = {
+    state: s.state,
+    verdict: s.verdict ?? (s.state === 'running' ? '' : prev.verdict || ''),
+    at: s.at || Date.now(),
+    dir: s.dir || prev.dir || '',
+    startedAt: s.state === 'running' ? (prev.state === 'running' ? prev.startedAt : Date.now()) : prev.startedAt,
+  };
+  if (!note && prev.state === next.state && prev.verdict === next.verdict) return;
+  const text = note || (next.state === 'done' ? `Diagnosis: ${next.verdict}`
+    : next.state === 'failed' ? 'Diagnosis failed: see run.log in the report folder' : null);
+  await saveBug(bug.id, { diagnosis: next }, text);
+  if (next.state === 'running') chrome.alarms.create(DIAG_ALARM, { periodInMinutes: 0.5 });
+}
+
+async function startDiagnosis(id, force = false) {
+  const bug = await db.bugs.get(id);
+  if (!bug?.issueUrl) throw new Error('the bug has no GitHub issue yet');
+  const report = await db.get(id); // gone if the report was pruned; frames are optional
+  const res = await triageHost({ type: 'diagnose', url: bug.issueUrl, force, frames: report?.frames || [] });
+  if (!res.ok) {
+    await saveBug(id, { diagnosis: { ...bug.diagnosis, state: res.missing ? 'no-helper' : 'error', error: res.error, at: Date.now() } },
+      `Diagnosis not started: ${res.error}`);
+    return res;
+  }
+  await applyDiagnosis(bug, res, res.state === 'running' ? (force ? 'Diagnosis started again' : 'Diagnosis started') : undefined);
+  return res;
+}
+
+async function checkDiagnoses() {
+  const running = (await db.bugs.all()).filter((b) => b.diagnosis?.state === 'running' && b.issueUrl);
+  if (!running.length) { await chrome.alarms.clear(DIAG_ALARM); return; }
+  const res = await triageHost({ type: 'status', urls: running.map((b) => b.issueUrl) });
+  if (!res.ok) return;
+  for (const b of running) {
+    const s = res.results[b.issueUrl];
+    if (s && s.state !== 'running') await applyDiagnosis(b, s.state === 'none' ? { state: 'failed' } : s);
+  }
+}
 
 // Read in the page when capture finishes: events from page load may be older than the lookback window.
 // The UI build is the hashed name of the app bundle, which changes with every deploy.
@@ -176,7 +240,8 @@ async function githubPayload(id) {
 async function issueCreated(id, url) {
   if (!parseIssueUrl(url)) throw new Error(`not an issue URL: ${url}`);
   const bug = await saveBug(id, { issueUrl: url, issueState: 'open' }, `Issue created: ${url}`);
-  await syncBug(bug, await getToken()).catch(() => {}); // the next periodic sync retries
+  const synced = await syncBug(bug, await getToken()).catch(() => bug); // the next periodic sync retries
+  if (isFrontendBug(synced) && await autoDiagnoseOn()) await startDiagnosis(id).catch((e) => console.warn('diagnosis', e));
 }
 
 async function blobToBase64(blob) {
@@ -211,6 +276,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return reply(issueCreated(msg.id, msg.url));
     case 'sync-bugs':
       return reply(syncAll());
+    case 'diagnose':
+      return reply(startDiagnosis(msg.id, msg.force));
+    case 'diagnosis-report':
+      return reply(db.bugs.get(msg.id).then((b) => (b?.issueUrl ? triageHost({ type: 'report', url: b.issueUrl })
+        : { ok: false, error: 'no GitHub issue' })).then((r) => { if (!r.ok) throw new Error(r.error); return r; }));
+    case 'triage-ping':
+      return reply(triageHost({ type: 'ping' }));
   }
 });
 

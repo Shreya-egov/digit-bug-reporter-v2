@@ -9,7 +9,7 @@ const COLUMNS = [
   ['Issue ID', 14], ['Bug title', 50], ['Environment', 12], ['Repository', 32], ['Bug type', 13], ['Severity', 10],
   ['Priority', 9], ['GitHub issue URL', 18], ['Assigned owner', 22], ['Fix status', 13], ['PR URL', 14], ['Reviewer', 18],
   ['Test status', 11], ['Date reported', 13], ['Date fixed', 12], ['Date verified', 13], ['Current status', 18],
-  ['MDMS change', 40],
+  ['MDMS change', 40], ['Diagnosis', 50],
 ];
 const col = (name) => colName(COLUMNS.findIndex(([h]) => h === name));
 const RANGE_END = 5000; // formulas cover rows added later in Excel too
@@ -25,7 +25,7 @@ function bugRow(b) {
     b.severity || '', b.priority || '', link(b.issueUrl, b.issueUrl ? `#${issue?.number ?? 'issue'}` : ''),
     (b.assignees || []).join(', '), fixStatusOf(b), link(b.prUrl, pr ? `#${pr.number}` : 'PR'), b.reviewer || '',
     b.testStatus || 'Not run', date(b.reportedAt), date(fixedAtOf(b)), date(b.verifiedAt), statusOf(b),
-    b.configFix || '',
+    b.configFix || '', b.diagnosis?.state === 'done' ? b.diagnosis.verdict : '',
   ];
 }
 

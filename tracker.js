@@ -59,6 +59,44 @@ function renderSummary() {
   );
 }
 
+// ---- automatic diagnosis (native host: automation/native-host) ----
+// Verdicts start with a category ("MDMS data - ..."); the table shows the category, the dialog the whole line.
+const verdictKind = (v = '') => v.split(/\s+[-–]\s+/)[0];
+
+function diagnosisText(d) {
+  if (!d) return '';
+  return {
+    running: 'Running… (about 5 minutes)', done: d.verdict, failed: 'Failed: see run.log in the report folder',
+    'no-helper': 'Helper not installed', error: `Couldn't start: ${d.error || 'unknown error'}`,
+  }[d.state] || '';
+}
+
+function diagnosisCell(b) {
+  const d = b.diagnosis;
+  if (!d) return '';
+  const text = d.state === 'done' ? verdictKind(d.verdict) : diagnosisText(d).replace(/:.*$/, '');
+  return h('span', { className: `d-${d.state}`, title: diagnosisText(d), textContent: text });
+}
+
+let helperOk = false;
+
+async function showHelper() {
+  const res = await chrome.runtime.sendMessage({ type: 'triage-ping' });
+  helperOk = !!res?.ok;
+  const command = `automation/native-host/install.sh ${chrome.runtime.id}`;
+  $('helperCommand').textContent = command;
+  $('helperInstall').hidden = helperOk;
+  $('autoDiagnoseRow').hidden = !helperOk;
+  $('helperStatus').textContent = helperOk
+    ? `Diagnosis helper connected. Reports are saved in ${res.out}.`
+    : 'Diagnosis helper not installed. To diagnose bugs automatically with Claude Code, run this once in the extension folder, then reload this page:';
+  const { autoDiagnose } = await chrome.storage.local.get('autoDiagnose');
+  $('autoDiagnose').checked = autoDiagnose !== false;
+}
+
+$('autoDiagnose').addEventListener('change', () => chrome.storage.local.set({ autoDiagnose: $('autoDiagnose').checked }));
+$('copyHelper').addEventListener('click', () => navigator.clipboard.writeText($('helperCommand').textContent));
+
 // ---- table ----
 function matches(b) {
   const f = $('statusFilter').value;
@@ -89,6 +127,7 @@ function renderRows() {
         : b.prHidden ? h('span', { className: 'hint', title: 'A PR is linked in the issue\'s Development sidebar. GitHub only names it to a signed-in token: connect one in Settings.', textContent: 'linked (token needed)' }) : ''),
       h('td', { textContent: b.testStatus || 'Not run' }),
       h('td', { textContent: day(b.reportedAt) }),
+      h('td', {}, diagnosisCell(b)),
       h('td', {}, h('span', { className: `status s-${status.replace(/\W+/g, '-').toLowerCase()}`, textContent: status })),
       h('td', {}, h('button', { type: 'button', textContent: 'Open', onclick: () => openBug(b.id), ariaLabel: `Open ${b.title || issueLabel(b)}` })),
     );
@@ -229,10 +268,61 @@ async function openBug(id) {
   $('bVerified').textContent = b.verifiedAt ? 'Clear verified' : 'Mark verified';
   $('bVerified').disabled = !b.verifiedAt && statusOf(b) !== 'Fixed';
   $('bVerified').title = $('bVerified').disabled ? 'A bug can be verified once its fix is merged or the issue is closed as completed' : '';
+  renderDiagnosis(b);
   $('bLog').replaceChildren(...[...(b.log || [])].reverse().map((l) => h('li', {}, h('time', { textContent: time(l.at) }), ` ${l.text}`)));
   showError('bugError', '');
   if (!$('bugDialog').open) $('bugDialog').showModal();
 }
+
+function renderDiagnosis(b) {
+  const d = b.diagnosis;
+  $('bDiagText').textContent = !b.issueUrl ? 'Available once the issue is on GitHub.'
+    : d ? diagnosisText(d) : 'Not diagnosed yet.';
+  $('bDiagText').className = d ? `d-${d.state}` : '';
+  $('bDiagnose').textContent = d?.state === 'done' || d?.state === 'failed' ? 'Diagnose again' : 'Diagnose now';
+  $('bDiagnose').disabled = !b.issueUrl || !helperOk || d?.state === 'running';
+  $('bDiagnose').title = helperOk ? '' : 'Install the diagnosis helper first (see the top of the page)';
+  $('bReportShow').hidden = d?.state !== 'done';
+  $('bCommentCopy').hidden = d?.state !== 'done';
+  $('bReport').hidden = true;
+}
+
+async function diagnosisReport() {
+  const res = await chrome.runtime.sendMessage({ type: 'diagnosis-report', id: current.id });
+  if (!res?.ok) throw new Error(res?.error || 'no answer');
+  return res;
+}
+
+$('bDiagnose').addEventListener('click', async () => {
+  const again = current.diagnosis?.state === 'done' || current.diagnosis?.state === 'failed';
+  $('bDiagnose').disabled = true;
+  const res = await chrome.runtime.sendMessage({ type: 'diagnose', id: current.id, force: again });
+  if (!res?.ok) showError('bugError', `Couldn't start the diagnosis: ${res?.error}`);
+  await load();
+  await openBug(current.id);
+});
+
+$('bReportShow').addEventListener('click', async () => {
+  if (!$('bReport').hidden) { $('bReport').hidden = true; return; }
+  try {
+    const res = await diagnosisReport();
+    $('bReport').textContent = `${res.report}\n\n(Folder: ${res.dir})`;
+    $('bReport').hidden = false;
+  } catch (err) {
+    showError('bugError', `Couldn't read the report: ${err.message}`);
+  }
+});
+
+$('bCommentCopy').addEventListener('click', async () => {
+  try {
+    const { comment } = await diagnosisReport();
+    await navigator.clipboard.writeText(comment);
+    $('bCommentCopy').textContent = 'Copied: paste it on the issue';
+    setTimeout(() => { $('bCommentCopy').textContent = 'Copy draft comment'; }, 3000);
+  } catch (err) {
+    showError('bugError', `Couldn't read the draft comment: ${err.message}`);
+  }
+});
 
 async function change(patch, note) {
   current = await saveBug(current.id, patch, note);
@@ -378,4 +468,5 @@ chrome.runtime.onMessage.addListener((msg) => {
 });
 
 await showWorkbookStatus();
+await showHelper();
 await load();

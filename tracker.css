@@ -43,3 +43,18 @@ dialog form { border: 0; }
 .log { margin: 0 0 12px; padding-left: 20px; font-size: 14px; max-height: 220px; overflow-y: auto; }
 .log time { color: var(--muted); font-variant-numeric: tabular-nums; }
 .command { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 10px; white-space: pre-wrap; word-break: break-all; font: 13px ui-monospace, Menlo, Consolas, monospace; min-height: 1.5em; }
+
+.helper { margin: 0 0 6px; }
+.helper .hint { margin: 0 0 4px; }
+label.inline { display: flex; gap: 8px; align-items: center; font-weight: 400; font-size: 14px; margin: 0 0 8px; }
+label.inline input { width: auto; margin: 0; }
+#helperInstall { display: flex; gap: 8px; align-items: flex-start; flex-wrap: wrap; }
+#helperInstall .command { flex: 1 1 400px; margin: 0; }
+.diag { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 14px; }
+.diag h3 { margin: 0 0 4px; }
+.diag p { margin: 0 0 8px; }
+.report { max-height: 360px; overflow: auto; white-space: pre-wrap; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 6px; padding: 10px; font: 13px/1.45 ui-monospace, Menlo, Consolas, monospace; }
+.d-running { color: #b54c00; }
+.d-done { font-weight: 600; }
+.d-failed, .d-error { color: var(--danger); }

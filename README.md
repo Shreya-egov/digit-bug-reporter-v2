@@ -111,37 +111,59 @@ A browser extension can't edit code, run tests or push, which is why this part r
 Chrome.
 
 ## Automatic diagnosis of new frontend bugs
-`automation/auto-triage.sh` diagnoses each new DIGIT-Frontend issue you file (from the extension or by hand) without
-you starting it, and changes nothing.
+When you click **Create** on GitHub for a frontend bug (repo DIGIT-Frontend, or bug type UI), the extension starts a
+read-only diagnosis with Claude Code straight away. About 5 minutes later the bug's row in the tracker shows the
+verdict, for example "MDMS data" or "code".
 
-- Every 15 minutes (systemd user timer) it looks for new open issues in `egovernments/DIGIT-Frontend` that you
-  opened in the last 2 days. It diagnoses at most 3 per run.
-- For each one, Claude Code runs `fix-ui-bug` in **diagnose mode**: issue and screenshots, deployed build, MDMS records
-  (read-only), and the code. It writes `~/digit-bug-triage/DIGIT-Frontend-<n>/`:
-  - `report.md`: the first line is the verdict (MDMS data / code / both / backend / ...), followed by the evidence;
-  - `comment.md`: a draft comment for the issue;
-  - `mdms/`: the backup and dry-run diff of any proposed MDMS change.
-- You get a desktop notification with the verdict.
+**Set up once:** the tracker page shows a command with your extension's id. Run it in the extension folder, then
+reload the tracker:
+```bash
+automation/native-host/install.sh <extension id>   # registers the diagnosis helper with Chrome (--remove to undo)
+```
+The tracker then says *Diagnosis helper connected*, with a switch for automatic diagnosis (on by default).
 
-It is **read-only by construction**:
+**What happens on Create**
+1. The extension sends the issue URL, and about 12 frames of your recording, to the helper. The frames are taken when
+   you press Open on GitHub.
+2. The helper starts `automation/auto-triage.sh <url>`. Claude Code runs `fix-ui-bug` in **diagnose mode**:
+   - the issue, the screenshot and the recording frames;
+   - the deployed build (kubectl);
+   - the MDMS records the screen uses (read-only, filtered);
+   - the code at the deployed commit;
+   - recent template history;
+   - `known-causes.md`, the verdicts from earlier bugs, so repeats are recognised quickly.
+3. Results go to `~/digit-bug-triage/<repo>-<n>/`:
+   - `report.md`, whose first line is the verdict;
+   - `comment.md`, a draft comment for the issue;
+   - `mdms/`, with the dry-run diff of any proposed MDMS change.
+4. The tracker shows the verdict in the **Diagnosis** column and logs it on the bug. A desktop notification appears
+   too. In the bug's dialog: **View report**, **Copy draft comment**, **Diagnose again**. Bugs added by URL can use
+   **Diagnose now**.
+
+**Read-only by construction**
 - **Permissions:** the run uses an allowlist of read commands, and anything else is denied because nobody is there to
   approve it.
 - **MDMS:** diffs go through `mdms-dryrun.sh`, which has no apply path.
-- **Network:** GitHub reads go through `gh-get.sh`, which can only send GET requests to api.github.com, and the GitHub
-  token is removed from the run's environment.
-- **Files:** it can only write inside the report folder.
+- **Network:** GitHub reads go through `gh-get.sh` (GET requests to api.github.com only), and the GitHub token is
+  removed from the run's environment.
+- **Files:** it writes only into the report folder.
+- **Helper:** it accepts only GitHub issue URLs and JPEG frames.
+- **Untrusted text:** issue text is treated as data.
 
-Issue text is treated as data. To apply a fix, run the normal interactive `/fix-ui-bug`, which asks for your yes at
-each write.
+To apply a fix, run the interactive `/fix-ui-bug`, which asks for your yes at each write.
 
+**Fallback for issues filed outside the extension:** a timer checks GitHub every 15 minutes for new open
+DIGIT-Frontend issues you opened (at most 3 per check). It skips issues already diagnosed.
 ```bash
 automation/auto-triage.sh https://github.com/egovernments/DIGIT-Frontend/issues/1234   # one issue, now
-automation/install.sh            # turn on the 15-minute timer
-automation/install.sh --remove   # turn it off
+automation/install.sh            # turn on the 15-minute timer (--remove to undo)
 ```
 Settings (environment variables): `DIGIT_TRIAGE_AUTHOR` (default: your git user.name), `DIGIT_TRIAGE_REPO`,
-`DIGIT_TRIAGE_OUT`, `DIGIT_TRIAGE_SINCE_DAYS`, `DIGIT_TRIAGE_MAX`. Each diagnosis is a full Claude Code run and uses
-your Claude usage. The timer only runs while you're logged in to this machine.
+`DIGIT_TRIAGE_OUT`, `DIGIT_TRIAGE_SINCE_DAYS`, `DIGIT_TRIAGE_MAX`. For recordings attached by hand, frames need
+`ffmpeg` (`sudo apt install ffmpeg`). Without it, the diagnosis uses the screenshot and the steps.
+
+Each diagnosis is a full Claude Code run and uses your Claude usage. Everything runs on this machine, because it needs
+your kubectl access, the local DIGIT-Frontend clone and your skills.
 
 ## Connecting GitHub (optional)
 Without a token the review page lists the public `egovernments` repos and the people who can be assigned in the

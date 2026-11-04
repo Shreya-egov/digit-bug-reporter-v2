@@ -23,6 +23,15 @@
   </div>
   <p id="syncStatus" class="hint" role="status"></p>
   <p id="workbookStatus" class="hint"></p>
+  <div id="helper" class="helper">
+    <p id="helperStatus" class="hint"></p>
+    <label class="inline" id="autoDiagnoseRow" hidden><input type="checkbox" id="autoDiagnose">
+      Diagnose new frontend bugs automatically when you click Create (read-only: nothing is posted or changed)</label>
+    <div id="helperInstall" hidden>
+      <pre id="helperCommand" class="command"></pre>
+      <button type="button" id="copyHelper">Copy command</button>
+    </div>
+  </div>
 
   <section aria-label="Summary">
     <ul class="tiles" id="tiles"></ul>
@@ -44,7 +53,7 @@
         <th scope="col">Issue</th><th scope="col">Title</th><th scope="col">Env</th><th scope="col">Repository</th>
         <th scope="col">Type</th><th scope="col">Severity</th><th scope="col">Priority</th><th scope="col">Owner</th>
         <th scope="col">Fix</th><th scope="col">PR</th><th scope="col">Tests</th><th scope="col">Reported</th>
-        <th scope="col">Status</th><th scope="col"><span class="visually-hidden">Actions</span></th>
+        <th scope="col">Diagnosis</th><th scope="col">Status</th><th scope="col"><span class="visually-hidden">Actions</span></th>
       </tr></thead>
       <tbody id="rows"></tbody>
     </table>
@@ -72,6 +81,16 @@
   <form method="dialog" id="bugForm">
     <h2 id="bugTitle"></h2>
     <p id="bugLinks" class="hint"></p>
+    <section class="diag" aria-labelledby="bDiagTitle">
+      <h3 id="bDiagTitle">Diagnosis</h3>
+      <p id="bDiagText"></p>
+      <div class="actions">
+        <button type="button" id="bDiagnose"></button>
+        <button type="button" id="bReportShow" hidden>View report</button>
+        <button type="button" id="bCommentCopy" hidden>Copy draft comment</button>
+      </div>
+      <pre id="bReport" class="report" hidden></pre>
+    </section>
     <div class="row four">
       <label>Bug type <select id="bType"></select></label>
       <label>Severity <select id="bSeverity"></select></label>

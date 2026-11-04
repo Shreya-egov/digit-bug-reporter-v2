@@ -116,6 +116,29 @@ function buildBody() {
   ].join('\n');
 }
 
+// About 12 stills of the recording, as small JPEGs, for the automatic diagnosis: it reads images, not video.
+async function videoFrames(blob, count = 12) {
+  const video = Object.assign(document.createElement('video'), { muted: true, src: URL.createObjectURL(blob) });
+  const seek = (t) => new Promise((resolve) => { video.onseeked = resolve; video.currentTime = t; });
+  try {
+    await new Promise((resolve, reject) => { video.onloadedmetadata = resolve; video.onerror = reject; });
+    // MediaRecorder's WebM has no duration until the player has seeked to the end
+    if (!Number.isFinite(video.duration)) await seek(1e9);
+    const scale = Math.min(1, 960 / video.videoWidth);
+    const canvas = Object.assign(document.createElement('canvas'),
+      { width: Math.round(video.videoWidth * scale), height: Math.round(video.videoHeight * scale) });
+    const frames = [];
+    for (let i = 0; i < count; i++) {
+      await seek((video.duration * (i + 0.5)) / count);
+      canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+      frames.push(canvas.toDataURL('image/jpeg', 0.7).split(',')[1]);
+    }
+    return frames;
+  } finally {
+    URL.revokeObjectURL(video.src);
+  }
+}
+
 function updateDupLink() {
   const words = $('title').value.replace(/[^\w\s-]/g, ' ').split(/\s+/).filter((w) => w.length > 3).slice(0, 5).join(' ');
   $('dupLink').href = `https://github.com/${$('repo').value}/issues?q=${encodeURIComponent(`is:issue ${words}`)}`;
@@ -364,6 +387,8 @@ if (!report) {
       // tabs.create, not window.open: a popup blocker can swallow window.open after the await above
       await chrome.tabs.create({ url: `https://github.com/${repo}/issues/new${query ? `?${query}` : ''}#digitbug2=${id}` });
       status('GitHub opened in a new tab. Check the filled form there, wait for the uploads to finish, then click Create.');
+      // ready before Create is clicked; a failure only means the diagnosis works from the screenshot and steps
+      if (report.video?.size && !report.frames) videoFrames(report.video).then((frames) => db.update(id, { frames }), () => {});
     } catch (err) {
       showFailure(err);
     }

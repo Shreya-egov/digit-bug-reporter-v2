@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Diagnose new DIGIT-Frontend bugs automatically, read-only.
 #   auto-triage.sh            new open issues you filed (run by the systemd timer)
-#   auto-triage.sh <url>      one issue, now
+#   auto-triage.sh <url>      one issue, now (also started by the extension's native host when you click Create)
 # For each issue, Claude Code runs the fix-ui-bug skill in mode=diagnose with a read-only allowlist and no GitHub
 # token, writes report.md / comment.md / mdms/ to ~/digit-bug-triage/<repo>-<n>/, and you get a desktop notification.
 # Nothing is written to MDMS, GitHub or any repo: applying a fix is a separate, interactive /fix-ui-bug run.
@@ -18,8 +18,7 @@ CLAUDE=${CLAUDE_BIN:-$(command -v claude || echo "$HOME/.local/bin/claude")}
 mkdir -p "$OUT" "$STATE"
 touch "$STATE/seen"
 
-exec 9>"$STATE/lock"
-flock -n 9 || { echo "another run is in progress"; exit 0; }
+KNOWN="$OUT/known-causes.md" # one line per past verdict; each run reads it first
 
 notify() { command -v notify-send >/dev/null && notify-send -a "DIGIT auto-triage" "$1" "$2" || true; echo "$1: $2"; }
 
@@ -49,6 +48,7 @@ write_settings() {
       "Read", "Grep", "Glob",
       "Write(/$OUT/**)", "Edit(/$OUT/**)",
       "Bash($HERE/gh-get.sh:*)", "Bash($HERE/fetch-attachment.sh:*)", "Bash($HERE/mdms-dryrun.sh:*)",
+      "Bash($HERE/extract-frames.sh:*)",
       ${cmds[*]}
     ],
     "deny": ["WebFetch", "WebSearch", "NotebookEdit"]
@@ -56,26 +56,46 @@ write_settings() {
 JSON
 }
 
+# Dir name and markers are read by the native host: .running while a run is going, .failed if it produced no report.
+issue_dir() { local u=${1#https://github.com/}; local repo=${u#*/}; repo=${repo%%/*}; echo "$OUT/$repo-${1##*/}"; }
+
 diagnose() {
   local url=$1 n=${1##*/} dir
-  dir="$OUT/${REPO##*/}-$n"
+  dir=$(issue_dir "$url")
   mkdir -p "$dir"
+  # one run per issue, whether started by the timer or by the extension
+  exec 8>"$dir/.lock"
+  flock -n 8 || { echo "#$n is already being diagnosed"; return 0; }
+  echo $$ > "$dir/.running"
+  rm -f "$dir/.failed"
   notify "Diagnosing #$n" "$url"
+  local frames=""
+  [ -d "$dir/attachments/frames" ] && frames="
+Frames from the screen recording, in order, are in $dir/attachments/frames/: look at them to follow the steps."
   local prompt="Diagnose the bug $url with the fix-ui-bug skill in automatic diagnosis mode.
 Read the skill at $SKILL and follow its 'Automatic diagnosis' section: mode=diagnose repo=$REPO out=$dir.
+Before anything else, read $KNOWN if it exists: verdicts from earlier bugs. If this bug matches one, check that cause
+first and cite it, but confirm it with this bug's own evidence.$frames
 Helpers (use these instead of curl): $HERE/gh-get.sh <api path>, $HERE/fetch-attachment.sh <url> <file name>,
-$HERE/mdms-dryrun.sh <env> backup|diff ... . The DIGIT-Frontend clone is $HOME/DIGIT-Frontend: read it with
-git -C (fetch, show, grep, log); never check out or modify it. Write report.md and comment.md in $dir.
+$HERE/extract-frames.sh <attachment file name>, $HERE/mdms-dryrun.sh <env> backup|diff ... .
+The DIGIT-Frontend clone is $HOME/DIGIT-Frontend: read it with git -C (fetch, show, grep, log); never check out or
+modify it. Write report.md and comment.md in $dir.
 Run scripts by absolute path, one command per call, e.g. $HOME/.claude/skills/mdms-qa/scripts/pf.sh start qa and
 python3 $HOME/.claude/skills/mdms-qa/scripts/mdms.py --env qa get <schema> <uid> (not ~ or shell variables)."
   ( cd "$dir" && DIGIT_TRIAGE_ISSUE_DIR="$dir" env -u GITHUB_TOKEN -u GH_TOKEN \
       "$CLAUDE" -p "$prompt" --settings "$STATE/settings.json" --add-dir "$dir" > "$dir/run.log" 2>&1 ) || true
   # don't leave a port-forward behind if the run didn't stop it
   for env in qa uat demo; do "$HOME/.claude/skills/mdms-qa/scripts/pf.sh" stop "$env" >/dev/null 2>&1 || true; done
+  rm -f "$dir/.running"
   if [ -s "$dir/report.md" ]; then
-    echo "$url" >> "$STATE/seen"
-    notify "#$n: $(head -1 "$dir/report.md" | cut -c1-120)" "Report: $dir/report.md"
+    grep -qxF "$url" "$STATE/seen" || echo "$url" >> "$STATE/seen"
+    local verdict
+    verdict=$(head -1 "$dir/report.md" | sed 's/^VERDICT: *//' | cut -c1-200)
+    echo "- $(date +%F) $url: $verdict" >> "$KNOWN"
+    tail -n 100 "$KNOWN" > "$KNOWN.tmp" && mv "$KNOWN.tmp" "$KNOWN"
+    notify "#$n: $(echo "$verdict" | cut -c1-120)" "Report: $dir/report.md"
   else
+    touch "$dir/.failed"
     echo "$url $(date +%s)" >> "$STATE/failed"
     notify "#$n: diagnosis failed" "See $dir/run.log"
   fi
