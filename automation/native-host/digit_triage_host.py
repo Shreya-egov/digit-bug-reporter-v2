@@ -22,6 +22,19 @@ MAX_MDMS_BYTES = 8_000_000
 SAFE_NAME = re.compile(r"[^A-Za-z0-9_.-]+")
 MAX_FRAME_BYTES = 400_000
 VERSION = 1
+# One line per request (time, type, outcome; no URLs' content or data), for checking that Chrome reaches the helper.
+LOG = os.path.join(os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state"), "digit-auto-triage", "host.log")
+
+
+def log(kind, outcome):
+    try:
+        os.makedirs(os.path.dirname(LOG), exist_ok=True)
+        if os.path.exists(LOG) and os.path.getsize(LOG) > 200_000:
+            os.replace(LOG, LOG + ".1")
+        with open(LOG, "a") as f:
+            f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {kind} {outcome}\n")
+    except OSError:
+        pass
 
 
 def read_message():
@@ -167,9 +180,13 @@ def main():
     msg = read_message()
     if msg is None:
         return
+    kind = str(msg.get("type"))[:20]
     try:
-        write_message({"ok": True, **handle(msg)})
+        reply = handle(msg)
+        log(kind, f"ok {reply.get('state', '')}".strip())
+        write_message({"ok": True, **reply})
     except Exception as e:  # report every failure to the extension rather than dying silently
+        log(kind, f"error {str(e)[:120]}")
         write_message({"ok": False, "error": str(e)[:300]})
 
 

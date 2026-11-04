@@ -107,6 +107,14 @@ async function showHelper() {
   $('autoComment').checked = autoComment !== false;
 }
 
+// Bugs created while the helper wasn't installed: start their diagnosis now, as Create would have.
+async function retryWithoutHelper() {
+  if (!helperOk || !$('autoDiagnose').checked) return false;
+  const stuck = rows.filter((b) => b.diagnosis?.state === 'no-helper' && b.issueUrl);
+  for (const b of stuck) await chrome.runtime.sendMessage({ type: 'diagnose', id: b.id });
+  return stuck.length > 0;
+}
+
 $('autoComment').addEventListener('change', () => chrome.storage.local.set({ autoComment: $('autoComment').checked }));
 
 $('autoDiagnose').addEventListener('change', () => chrome.storage.local.set({ autoDiagnose: $('autoDiagnose').checked }));
@@ -499,3 +507,4 @@ chrome.runtime.onMessage.addListener((msg) => {
 await showWorkbookStatus();
 await showHelper();
 await load();
+if (await retryWithoutHelper()) await load();
