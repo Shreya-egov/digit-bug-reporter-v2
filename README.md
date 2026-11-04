@@ -1,7 +1,7 @@
 # DIGIT Bug Reporter v2 (Chrome extension)
 
 > **v2 can be installed next to v1** ([digit-bug-reporter](https://github.com/Shreya-egov/digit-bug-reporter)) for side-by-side
-> testing. It has its own name, a teal **v2** toolbar icon, the shortcut **Alt+Shift+V** (v1 keeps Alt+Shift+B), and its own
+> testing. It has its own name, a DIGIT-coloured bug icon with a **v2** tag, the shortcut **Alt+Shift+V** (v1 keeps Alt+Shift+B), and its own
 > storage. Its capture and GitHub filling use separate markers, so neither version picks up the other's reports.
 
 Record a bug on the DIGIT HCM console the way you would with a screen recorder. When you press **Stop**, the
