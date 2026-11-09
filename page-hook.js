@@ -37,6 +37,23 @@
     return short(text, 200);
   };
 
+  const safeBodyText = (body) => {
+    if (body == null) return '';
+    if (typeof body === 'string') return body;
+    try { return JSON.stringify(body); } catch { return String(body); }
+  };
+
+  const emitNetwork = (info, status, text, failText) => {
+    const response = safeBodyText(text).trim();
+    post({
+      kind: 'network',
+      ...info,
+      status,
+      error: failText || (status ? errorSummary(response) : 'request failed (network error, CORS or aborted)'),
+      response: response || '',
+    });
+  };
+
   // MDMS v2 search responses: newest copy of each record wins; oldest dropped beyond the size cap.
   const MDMS_RE = /\/(mdms[\w-]*|egov-mdms-service)\/v2\/_search/;
   const MDMS_MAX_RECORD = 1_500_000;
@@ -96,12 +113,12 @@
       if (res.status < 400 && MDMS_RE.test(url)) res.clone().text().then(keepMdms, () => {});
       if (res.status >= 400) {
         res.clone().text()
-          .then((t) => post({ kind: 'network', method, url, status: res.status, error: errorSummary(t) }))
-          .catch(() => post({ kind: 'network', method, url, status: res.status }));
+          .then((t) => emitNetwork({ method, url }, res.status, t, errorSummary(t)))
+          .catch(() => emitNetwork({ method, url }, res.status, '', ''));
       }
       return res;
     } catch (err) {
-      post({ kind: 'network', method, url, status: 0, error: short(err?.message) });
+      emitNetwork({ method, url }, 0, '', short(err?.message));
       throw err;
     }
   };
@@ -127,10 +144,7 @@
           if (this.responseType === '' || this.responseType === 'text') text = this.responseText;
           else if (this.responseType === 'json') text = JSON.stringify(this.response);
         } catch { /* unreadable body */ }
-        post({
-          kind: 'network', ...info, status: this.status,
-          error: this.status ? errorSummary(text) : 'request failed (network error, CORS or aborted)',
-        });
+        emitNetwork(info, this.status, text, this.status ? errorSummary(text) : 'request failed (network error, CORS or aborted)');
       });
     }
     return origSend.apply(this, arguments);

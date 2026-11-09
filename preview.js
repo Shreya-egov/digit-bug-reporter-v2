@@ -30,13 +30,14 @@ function environmentLine(url, events, info = {}) {
   const flow = u.searchParams.get('flow');
   const chrome = navigator.userAgent.match(/Chrome\/(\d+)/)?.[1];
   const os = info.os && `${OS_NAMES[info.os] || info.os}${info.arch ? ` ${info.arch}` : ''}`;
-  return [
+  const parts = [
     `${u.host}${env ? ` (${env})` : ''}`,
     tenant && `tenant ${tenant}`,
     campaign && `campaign ${campaign}${flow ? ` / flow ${flow}` : ''}`,
     chrome && `Chrome ${chrome}${os ? ` on ${os}` : ''}`,
-    `UI build: ${info.build || 'not captured'}`,
-  ].filter(Boolean).join(', ');
+  ];
+  if (info.build) parts.push(`UI build: ${info.build}`);
+  return parts.filter(Boolean).join(', ');
 }
 
 function draftSteps(url, events) {
@@ -71,10 +72,15 @@ function dedupe(lines) {
 
 function evidenceText(events) {
   const calls = dedupe(events.filter((e) => e.kind === 'network')
-    .map((e) => `${e.method} ${e.url} → ${e.status || 'failed'}${e.error ? `  ${e.error}` : ''}`));
+    .map((e) => {
+      const base = `${e.method} ${e.url} → ${e.status || 'failed'}${e.error ? `  ${e.error}` : ''}`;
+      const curl = `curl -sS -X ${e.method} ${JSON.stringify(e.url)}`;
+      const response = typeof e.response === 'string' && e.response.trim() ? `Response: ${e.response.trim()}` : '';
+      return [base, curl, response].filter(Boolean).join('\n');
+    }));
   const errors = dedupe(events.filter((e) => e.kind === 'console').map((e) => e.text));
   const parts = [];
-  if (calls.length) parts.push('Failing API calls:\n' + calls.join('\n'));
+  if (calls.length) parts.push('Failing API calls:\n' + calls.join('\n\n'));
   if (errors.length) parts.push('Console errors:\n' + errors.slice(0, 20).join('\n'));
   return parts.join('\n\n') || 'No failing API calls or console errors were captured.';
 }
