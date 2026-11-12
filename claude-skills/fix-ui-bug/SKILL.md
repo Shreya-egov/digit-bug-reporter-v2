@@ -177,3 +177,5 @@ come from wrong data or from code that handles the data wrongly. Check both befo
       shows it at once.
 
     Never merge the PR.
+
+- **Code PRs are part of the fix.** When the fix is code-only or code+MDMS, create a PR for the code fix after the branch is pushed. Assign the PR to the same assignee who is on the UI issue when that person is a valid GitHub user; otherwise request that assignee as reviewer and keep the PR assigned to the chosen reviewer if one was given. Do not leave the code fix unmerged but unassigned.
