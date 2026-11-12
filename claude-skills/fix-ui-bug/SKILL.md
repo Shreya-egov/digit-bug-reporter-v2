@@ -179,3 +179,5 @@ come from wrong data or from code that handles the data wrongly. Check both befo
     Never merge the PR.
 
 - **Code PRs are part of the fix.** When the fix is code-only or code+MDMS, create a PR for the code fix after the branch is pushed. Assign the PR to the same assignee who is on the UI issue when that person is a valid GitHub user; otherwise request that assignee as reviewer and keep the PR assigned to the chosen reviewer if one was given. Do not leave the code fix unmerged but unassigned.
+
+- **PR naming and assignment.** For any code fix PR created from a UI issue, use the issue number as the pull request title: `#<issue-number>`. In the PR body include `Fixes #<issue-number>`. Assign the PR to the same assignee as the original UI issue. If the original assignee is not a valid GitHub user or is unavailable, request that assignee as reviewer and keep the PR assigned to the chosen reviewer when a reviewer is set.
