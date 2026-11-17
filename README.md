@@ -205,11 +205,16 @@ Assignees and labels are passed to GitHub in the new-issue link. GitHub applies 
 write access to the repo; otherwise set them in the issue sidebar.
 
 ## What is captured
-- **Captured:** failing API calls (method, path, status, and the DIGIT `Errors[].code/message`); console errors;
-  button and option clicks; select and checkbox changes; page changes; the tenant; the deployed UI build (the
-  hashed `digit-ui.<hash>.bundle.js` name, which changes with every deploy); Chrome version and OS.
-  Events start 1 minute before you press Start, so errors from page load are included.
-- **Never captured:** request bodies (they contain the auth token), what you type into text fields, and audio.
+- **Captured:** every API call the page makes (method, path, status, time taken, the request body and up to 4,000
+  characters of the response); console errors; button and option clicks; select and checkbox changes; page changes;
+  the tenant; the deployed UI build (the hashed `digit-ui.<hash>.bundle.js` name, which changes with every deploy);
+  Chrome version and OS. Events start 1 minute before you press Start, so errors from page load are included. The
+  last 150 calls per tab are kept.
+- **API calls in the issue:** the review page lists every recorded call. Failing calls are ticked; tick or untick any
+  of them. Each ticked call goes into the issue's Evidence with a ready-to-run curl and its response.
+- **Never captured:** the auth token and user details in `RequestInfo` (replaced in the page with a
+  `<your-auth-token>` placeholder before anything is recorded), login and OTP request bodies, file uploads, what you
+  type into text fields, and audio.
 - **Redaction:** tokens, JWTs, passwords, OTPs, phone numbers, emails, personal-data fields and non-essential query
   parameters are masked automatically. Free text and the video can't be redacted, so check them before filing.
 - **Storage:** only the last 10 reports (with their video) are kept, in the extension's own storage. Tracker rows

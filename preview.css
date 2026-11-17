@@ -74,3 +74,24 @@ label.check + .field-error { margin-top: -6px; }
 label.check:has([aria-invalid=true]) { outline: 2px solid var(--danger); }
 [aria-invalid=true] { border-color: var(--danger) !important; box-shadow: 0 0 0 1px var(--danger); }
 #status.error { color: var(--danger); font-weight: 600; }
+fieldset.api { border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px 4px; margin: 0 0 14px; min-width: 0; }
+fieldset.api legend { font-weight: 600; padding: 0 4px; }
+fieldset.api > .hint { margin: 0 0 8px; }
+.api-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
+.api-tools input[type=search] { flex: 1 1 220px; width: auto; margin: 0; }
+.api-tools button { padding: 6px 10px; font-size: 14px; }
+label.inline { display: inline-flex; gap: 6px; align-items: center; margin: 0; font-weight: 400; font-size: 14px; }
+label.inline input { width: auto; margin: 0; }
+.api-list { list-style: none; margin: 0 0 8px; padding: 0; max-height: 480px; overflow-y: auto; border-top: 1px solid var(--border); }
+.api-list li { border-bottom: 1px solid var(--border); padding: 6px 0; }
+.api-row { display: flex; gap: 8px; align-items: baseline; }
+.api-row input { width: auto; margin: 0; flex: none; }
+.api-row details { flex: 1; min-width: 0; }
+.api-row summary { cursor: pointer; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; overflow-wrap: anywhere; }
+.api-status { font-weight: 700; }
+.api-status.bad { color: var(--danger); }
+.api-err { color: var(--danger); font-family: system-ui, sans-serif; }
+.api-row pre { margin: 6px 0; padding: 8px; max-height: 240px; overflow: auto; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 4px; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.api-row h4 { margin: 8px 0 0; font-size: 13px; color: var(--muted); }
+#apiSize.over { color: var(--danger); font-weight: 600; }

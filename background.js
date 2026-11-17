@@ -6,27 +6,33 @@ import { getToken, request } from './github-api.js';
 import { redact } from './redact.js';
 
 const EVENTS_PER_TAB = 300;
+// Every API call is recorded, with capped request and response bodies, so calls get their own, smaller log:
+// a busy page must not push the clicks and console errors out, or fill the session storage quota.
+const CALLS_PER_TAB = 150;
 const LOOKBACK_MS = 60_000; // include events from just before Start (e.g. errors on page load)
 
 // ---- rolling event log (storage.session survives the worker being suspended) ----
 let chain = Promise.resolve();
 const serial = (fn) => (chain = chain.then(fn).catch((e) => console.warn('event log', e)));
 
+const logKey = (tabId, event) => (event.kind === 'network' ? `net:${tabId}` : `ev:${tabId}`);
+
 function addEvent(tabId, event) {
   return serial(async () => {
-    const key = `ev:${tabId}`;
+    const key = logKey(tabId, event);
+    const max = event.kind === 'network' ? CALLS_PER_TAB : EVENTS_PER_TAB;
     const { [key]: list = [] } = await chrome.storage.session.get(key);
     list.push(event);
-    if (list.length > EVENTS_PER_TAB) list.splice(0, list.length - EVENTS_PER_TAB);
+    if (list.length > max) list.splice(0, list.length - max);
     await chrome.storage.session.set({ [key]: list });
   });
 }
 
 async function eventsSince(tabId, since) {
   await chain;
-  const key = `ev:${tabId}`;
-  const { [key]: list = [] } = await chrome.storage.session.get(key);
-  return list.filter((e) => e.ts >= since);
+  const keys = [`ev:${tabId}`, `net:${tabId}`];
+  const stored = await chrome.storage.session.get(keys);
+  return keys.flatMap((k) => stored[k] || []).filter((e) => e.ts >= since).sort((a, b) => a.ts - b.ts);
 }
 
 // ---- recording state ----
@@ -335,5 +341,5 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 chrome.tabs.onRemoved.addListener(async (tabId) => {
   const rec = await getRec();
   if (rec?.tabId === tabId) await stop();
-  serial(() => chrome.storage.session.remove(`ev:${tabId}`));
+  serial(() => chrome.storage.session.remove([`ev:${tabId}`, `net:${tabId}`]));
 });

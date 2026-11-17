@@ -1,6 +1,8 @@
-// Runs in the DIGIT page's own JS world from document_start. Records failing API calls, console errors
-// and the user's clicks/navigation, and hands them to relay.js. Never records request bodies (they carry
-// the auth token) or what is typed into text fields.
+// Runs in the DIGIT page's own JS world from document_start. Records every API call (fetch and XHR, with the request
+// body and a capped copy of the response), console errors and the user's clicks/navigation, and hands them to
+// relay.js. The review page lists the calls so the reporter picks which ones go into the issue, each with a curl.
+// The auth token and user details in RequestInfo are replaced by a placeholder here, before anything leaves the
+// page; login requests are never recorded with their body; what is typed into text fields is never recorded.
 // Also keeps the MDMS records the page loads (config, not personal data), which background.js reads when capture
 // stops. They go only to the local automatic diagnosis, never into the GitHub issue.
 (() => {
@@ -43,14 +45,44 @@
     try { return JSON.stringify(body); } catch { return String(body); }
   };
 
+  // Kept per call so a few hundred calls fit in the extension's session storage; MDMS and localization answers are huge.
+  const MAX_TEXT = 4000;
+  const cap = (s) => (s.length > MAX_TEXT ? `${s.slice(0, MAX_TEXT)}\n… (truncated, ${s.length} characters in all)` : s);
+
+  const LOGIN_RE = /\/user\/oauth\/token|\/_login|\/otp\//i;
+  const TOKEN_PLACEHOLDER = '<your-auth-token>';
+
+  // Request body for the curl. DIGIT sends RequestInfo (auth token, user details) in every body: swap it for a
+  // placeholder the reader fills with their own token.
+  const requestBody = (url, body) => {
+    if (body == null || body === '') return '';
+    if (LOGIN_RE.test(url)) return '<login request: body not recorded>';
+    if (typeof FormData !== 'undefined' && body instanceof FormData) return '<multipart form data: not recorded>';
+    if (typeof Blob !== 'undefined' && body instanceof Blob) return '<file upload: not recorded>';
+    if (body instanceof ArrayBuffer || ArrayBuffer.isView?.(body)) return '<binary body: not recorded>';
+    if (typeof URLSearchParams !== 'undefined' && body instanceof URLSearchParams) body = body.toString();
+    if (typeof body !== 'string') return '<body not recorded>';
+    try {
+      const j = JSON.parse(body);
+      if (j && typeof j === 'object') {
+        for (const k of ['RequestInfo', 'requestInfo']) if (k in j) j[k] = { apiId: 'Rainmaker', authToken: TOKEN_PLACEHOLDER };
+        return cap(JSON.stringify(j));
+      }
+    } catch { /* not JSON */ }
+    return cap(body);
+  };
+
   const emitNetwork = (info, status, text, failText) => {
     const response = safeBodyText(text).trim();
+    const failed = !status || status >= 400;
     post({
       kind: 'network',
       ...info,
       status,
-      error: failText || (status ? errorSummary(response) : 'request failed (network error, CORS or aborted)'),
-      response: response || '',
+      ms: info.start ? Math.round(performance.now() - info.start) : undefined,
+      start: undefined,
+      error: failed ? (failText || (status ? errorSummary(response) : 'request failed (network error, CORS or aborted)')) : '',
+      response: cap(response),
     });
   };
 
@@ -108,17 +140,18 @@
   window.fetch = async function (input, init) {
     const method = String(init?.method || input?.method || 'GET').toUpperCase();
     const url = pathOf(typeof input === 'string' ? input : input?.url ?? String(input));
+    const info = { method, url, body: requestBody(url, init?.body), start: performance.now() };
     try {
       const res = await origFetch.apply(this, arguments);
-      if (res.status < 400 && MDMS_RE.test(url)) res.clone().text().then(keepMdms, () => {});
-      if (res.status >= 400) {
-        res.clone().text()
-          .then((t) => emitNetwork({ method, url }, res.status, t, errorSummary(t)))
-          .catch(() => emitNetwork({ method, url }, res.status, '', ''));
-      }
+      res.clone().text()
+        .then((t) => {
+          if (res.status < 400 && MDMS_RE.test(url)) keepMdms(t);
+          emitNetwork(info, res.status, t, res.status >= 400 ? errorSummary(t) : '');
+        })
+        .catch(() => emitNetwork(info, res.status, '', ''));
       return res;
     } catch (err) {
-      emitNetwork({ method, url }, 0, '', short(err?.message));
+      emitNetwork(info, 0, '', short(err?.message));
       throw err;
     }
   };
@@ -130,21 +163,19 @@
     this.__digitBugV2 = { method: String(method).toUpperCase(), url: pathOf(url) };
     return origOpen.apply(this, arguments);
   };
-  XMLHttpRequest.prototype.send = function () {
+  XMLHttpRequest.prototype.send = function (body) {
     const info = this.__digitBugV2;
     if (info) {
+      info.body = requestBody(info.url, body);
+      info.start = performance.now();
       this.addEventListener('loadend', () => {
-        if (this.status && this.status < 400) {
-          if (MDMS_RE.test(info.url) && (this.responseType === '' || this.responseType === 'text')) keepMdms(this.responseText);
-          else if (MDMS_RE.test(info.url) && this.responseType === 'json') keepMdms(JSON.stringify(this.response));
-          return;
-        }
         let text = '';
         try {
           if (this.responseType === '' || this.responseType === 'text') text = this.responseText;
           else if (this.responseType === 'json') text = JSON.stringify(this.response);
         } catch { /* unreadable body */ }
-        emitNetwork(info, this.status, text, this.status ? errorSummary(text) : 'request failed (network error, CORS or aborted)');
+        if (this.status && this.status < 400 && MDMS_RE.test(info.url)) keepMdms(text);
+        emitNetwork(info, this.status, text, this.status >= 400 ? errorSummary(text) : '');
       });
     }
     return origSend.apply(this, arguments);

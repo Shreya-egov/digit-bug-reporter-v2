@@ -86,8 +86,23 @@
       <label>Expected <textarea id="expected" rows="3"></textarea></label>
       <label>Actual <textarea id="actual" rows="3"></textarea></label>
     </div>
-    <label>Evidence <span class="hint">failing API calls and console errors, already redacted</span>
-      <textarea id="evidence" rows="8" class="mono"></textarea></label>
+    <fieldset id="apiBox" class="api">
+      <legend>API calls <span id="apiCount" class="hint"></span></legend>
+      <p class="hint">Every call the page made while recording, already redacted. Tick the ones to put in the issue:
+        each goes in with a curl and its response. Failing calls are ticked for you. The auth token in the curl is a
+        placeholder.</p>
+      <div class="api-tools">
+        <input id="apiFilter" type="search" placeholder="Filter by URL, method or status…" aria-label="Filter API calls">
+        <label class="inline"><input type="checkbox" id="apiFailedOnly"> Failing only</label>
+        <button type="button" id="apiPickFailed">Tick failing</button>
+        <button type="button" id="apiClear">Untick all</button>
+      </div>
+      <ul id="apiList" class="api-list" aria-label="Recorded API calls"></ul>
+      <p class="hint" id="apiEmpty" hidden>No API calls were recorded.</p>
+    </fieldset>
+    <p class="hint" id="apiSize"></p>
+    <label>Console errors and other evidence <span class="hint">console errors, already redacted; add anything else here</span>
+      <textarea id="evidence" rows="6" class="mono"></textarea></label>
     <p class="hint" id="redactions"></p>
     <p class="hint" id="mdmsNote" hidden></p>
     <p class="warn" id="captureNote" hidden></p>
