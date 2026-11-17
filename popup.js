@@ -2,8 +2,8 @@ const $ = (id) => document.getElementById(id);
 const send = (msg) => chrome.runtime.sendMessage(msg);
 
 const MODES = {
-  both: { button: '● Start recording', hint: 'Records this tab (no audio, max 2 min) and takes a screenshot when you stop.' },
-  video: { button: '● Start recording', hint: 'Records this tab (no audio, max 2 min). No screenshot.' },
+  both: { button: '● Start recording', hint: 'Records this tab (no audio, max 2 min), takes a snapshot every 10 s and a screenshot when you stop. Add your own with 📷 Snapshot now.' },
+  video: { button: '● Start recording', hint: 'Records this tab (no audio, max 2 min). No automatic screenshots; 📷 Snapshot now still works.' },
   screenshot: { button: '📷 Take screenshot', hint: 'Takes a screenshot of this tab now. No video.' },
 };
 const EXTRA = ' Failing API calls, console errors and your clicks are captured too.';
@@ -66,6 +66,13 @@ $('start').addEventListener('click', async () => {
   } catch (e) {
     showError(`Can't capture this tab: ${e.message}`);
   }
+});
+
+$('snap').addEventListener('click', async () => {
+  showError('');
+  const res = await send({ type: 'snap' });
+  if (!res.ok) { showError(`Snapshot failed: ${res.error}`); return; }
+  $('snapCount').textContent = `Snapshot taken (${res.count} so far). You choose which to attach when you review.`;
 });
 
 $('stop').addEventListener('click', async () => {

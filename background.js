@@ -239,7 +239,7 @@ async function start(tabId, streamId, withScreenshot = true) {
   const report = await newReport(tab);
   if (await ensureCapture(tabId)) await db.update(report.id, { captureRestartedAt: Date.now() });
   await ensureOffscreen();
-  const res = await chrome.runtime.sendMessage({ target: 'offscreen', type: 'start', streamId });
+  const res = await chrome.runtime.sendMessage({ target: 'offscreen', type: 'start', streamId, timedSnapshots: withScreenshot });
   if (!res?.ok) {
     await db.remove(report.id);
     throw new Error(res?.error || 'Could not start recording');
@@ -267,6 +267,20 @@ function stop() {
   return stopping;
 }
 
+// A snapshot taken by hand while recording (popup button or the keyboard shortcut).
+async function snapDuringRecording() {
+  if (!(await getRec())) throw new Error('Not recording');
+  const res = await chrome.runtime.sendMessage({ target: 'offscreen', type: 'snap' });
+  if (!res?.ok) throw new Error(res?.error || 'Snapshot failed');
+  await chrome.action.setBadgeText({ text: 'SNAP' });
+  setTimeout(() => getRec().then((rec) => rec && chrome.action.setBadgeText({ text: 'REC' })), 800);
+  return { count: res.count };
+}
+
+chrome.commands.onCommand.addListener((command) => {
+  if (command === 'take-snapshot') snapDuringRecording().catch(() => {});
+});
+
 async function snapshot(tabId) {
   const tab = await chrome.tabs.get(tabId);
   const report = await newReport(tab);
@@ -280,6 +294,12 @@ async function githubPayload(id) {
   if (!r?.title) return null;
   const files = [];
   if (r.screenshot && r.includeScreenshot !== false) files.push({ name: 'screenshot.png', type: 'image/png', base64: r.screenshot.split(',')[1] });
+  for (const i of r.snapshotPicks || []) {
+    const s = r.snapshots?.[i];
+    if (!s) continue;
+    const t = Math.round(s.at / 1000);
+    files.push({ name: `snapshot-${Math.floor(t / 60)}m${String(t % 60).padStart(2, '0')}s.jpg`, type: 'image/jpeg', base64: s.dataUrl.split(',')[1] });
+  }
   if (r.video?.size && r.includeVideo !== false) {
     files.push({ name: 'recording.webm', type: 'video/webm', base64: await blobToBase64(r.video) });
   }
@@ -320,6 +340,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return reply(stop());
     case 'snapshot':
       return reply(snapshot(msg.tabId));
+    case 'snap':
+      return reply(snapDuringRecording());
     case 'github-payload':
       return reply(githubPayload(msg.id).then((payload) => ({ payload })));
     case 'issue-created':

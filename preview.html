@@ -31,6 +31,17 @@
     </figure>
   </section>
 
+  <section id="snapBox" class="snaps" hidden aria-labelledby="snapTitle">
+    <h2 id="snapTitle">Snapshots taken while recording <span id="snapCount" class="hint"></span></h2>
+    <p class="hint">Every 10 seconds, plus any you took with 📷 Snapshot now. Ticked ones are attached to the issue;
+      the ones you took are ticked for you. Click a picture to see it full size.</p>
+    <div class="snap-tools">
+      <button type="button" id="snapAll">Tick all</button>
+      <button type="button" id="snapNone">Untick all</button>
+    </div>
+    <div id="snapGrid" class="snap-grid"></div>
+  </section>
+
   <form id="form">
     <div class="row combo-row">
       <label for="repo">Repository <span class="hint">click to see all · type to search · or type owner/name</span></label>

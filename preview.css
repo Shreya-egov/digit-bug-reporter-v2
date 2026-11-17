@@ -95,3 +95,14 @@ label.inline input { width: auto; margin: 0; }
   border-radius: 4px; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .api-row h4 { margin: 8px 0 0; font-size: 13px; color: var(--muted); }
 #apiSize.over { color: var(--danger); font-weight: 600; }
+.snaps { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 20px; }
+.snaps h2 { font-size: 16px; margin: 0 0 4px; }
+.snaps > .hint { margin: 0 0 8px; }
+.snap-tools { display: flex; gap: 8px; margin-bottom: 8px; }
+.snap-tools button { padding: 6px 10px; font-size: 14px; }
+.snap-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
+.snap-grid figure { padding: 6px; }
+.snap-grid figure.picked { outline: 2px solid var(--accent); }
+.snap-grid img { cursor: zoom-in; }
+.snap-grid figcaption label { display: inline-flex; gap: 6px; align-items: center; margin: 0; font-weight: 400; }
+.snap-grid figcaption input { width: auto; margin: 0; }

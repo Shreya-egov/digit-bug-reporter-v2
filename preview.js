@@ -154,7 +154,8 @@ function componentOf(url) {
 function buildBody() {
   const v = (k) => $(k).value.trim();
   const section = (h, text) => `## ${h}\n${text || '_not provided_'}\n`;
-  const media = [$('includeShot').checked && report.screenshot && 'screenshot', $('includeVideo').checked && report.video?.size && 'screen recording']
+  const snaps = snapPicks.size ? `${snapPicks.size} snapshot${snapPicks.size > 1 ? 's' : ''} from the recording` : '';
+  const media = [$('includeShot').checked && report.screenshot && 'screenshot', snaps, $('includeVideo').checked && report.video?.size && 'screen recording']
     .filter(Boolean).join(' and ');
   return [
     `**Environment:** ${v('env')}\n`,
@@ -358,6 +359,34 @@ window.addEventListener('error', (e) => showFailure(e.error || e.message));
 window.addEventListener('unhandledrejection', (e) => showFailure(e.reason));
 
 let report = await db.get(id);
+const snapPicks = new Set(); // indexes into report.snapshots
+const clock = (ms) => { const s = Math.round(ms / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+
+function renderSnapshots() {
+  const shots = report.snapshots || [];
+  $('snapBox').hidden = !shots.length;
+  $('snapCount').textContent = shots.length ? `${shots.length} taken · ${snapPicks.size} ticked` : '';
+  $('snapGrid').replaceChildren(...shots.map((s, i) => {
+    const fig = Object.assign(document.createElement('figure'), { className: snapPicks.has(i) ? 'picked' : '' });
+    const img = Object.assign(document.createElement('img'), { src: s.dataUrl, alt: `Snapshot at ${clock(s.at)}`, loading: 'lazy' });
+    img.addEventListener('click', async () => {
+      const blob = await (await fetch(s.dataUrl)).blob();
+      chrome.tabs.create({ url: URL.createObjectURL(blob) });
+    });
+    const box = Object.assign(document.createElement('input'), { type: 'checkbox', checked: snapPicks.has(i) });
+    box.addEventListener('change', () => {
+      if (box.checked) snapPicks.add(i); else snapPicks.delete(i);
+      renderSnapshots();
+      updateApiCount();
+    });
+    const label = document.createElement('label');
+    label.append(box, ' Attach');
+    const cap = document.createElement('figcaption');
+    cap.append(label, `${clock(s.at)}${s.manual ? ' · taken by you' : ''}`);
+    fig.append(img, cap);
+    return fig;
+  }));
+}
 let calls = []; // network events, oldest first
 const picks = new Set(); // indexes into calls
 let origin = '';
@@ -435,6 +464,11 @@ if (!report) {
   } else {
     $('includeVideo').checked = false;
   }
+  const savedSnaps = Array.isArray(report.snapshotPicks) ? report.snapshotPicks : null;
+  (report.snapshots || []).forEach((s, i) => { if (savedSnaps ? savedSnaps.includes(i) : s.manual) snapPicks.add(i); });
+  renderSnapshots();
+  $('snapAll').addEventListener('click', () => { (report.snapshots || []).forEach((_, i) => snapPicks.add(i)); renderSnapshots(); });
+  $('snapNone').addEventListener('click', () => { snapPicks.clear(); renderSnapshots(); });
   if (report.screenshot) {
     $('shotBox').hidden = false;
     $('shot').src = report.screenshot;
@@ -511,6 +545,7 @@ if (!report) {
         includeVideo: $('includeVideo').checked,
         includeScreenshot: $('includeShot').checked,
         apiPicks: [...picks],
+        snapshotPicks: [...snapPicks].sort((a, b) => a - b),
       });
       report = await db.get(id);
       // The tracker row; github-attach.js adds the issue URL once the issue is created.

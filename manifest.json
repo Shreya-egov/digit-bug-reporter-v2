@@ -17,6 +17,12 @@
       "suggested_key": {
         "default": "Alt+Shift+V"
       }
+    },
+    "take-snapshot": {
+      "suggested_key": {
+        "default": "Alt+Shift+S"
+      },
+      "description": "Take a snapshot while recording"
     }
   },
   "options_ui": {

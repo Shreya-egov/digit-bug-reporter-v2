@@ -36,6 +36,9 @@ asks you before each change.
    **Video + screenshot**, **Video only** or **Screenshot only**. The popup remembers your choice.
 2. Click **● Start recording** and reproduce the bug. Recording stops by itself after 2 minutes.
    With **Screenshot only**, click **📷 Take screenshot** instead; the review page opens straight away.
+   With **Video + screenshot**, a snapshot of the tab is also taken every 10 seconds while recording. In either video
+   mode, take one yourself at any moment with **📷 Snapshot now** in the popup or **Alt+Shift+S** (up to 40 per
+   recording). Snapshots come from the recorded stream, so they work even if the tab isn't the one in front.
 3. Click the icon again, then **■ Stop & review**.
 4. On the review page:
    - Pick the **repository** (click to see all, or type to search), then optionally the **assignees** for that
@@ -44,6 +47,8 @@ asks you before each change.
    - Write the title, the preconditions, the expected result and the actual result. Set the bug type, severity and
      priority.
    - Check the drafted steps, and add the values you typed. Typed text is never recorded.
+   - Tick the **snapshots** to attach. The ones you took by hand are ticked; the 10-second ones are not.
+   - Tick the **API calls** to put in the issue, each with a curl and its response. Failing calls are ticked.
    - Watch the video. Tick the box confirming that no personal data is visible.
 5. Click **Open on GitHub**. Wait for the "done" banner, check the issue, then click **Create**. The banner then
    says the issue was added to the bug tracker.
