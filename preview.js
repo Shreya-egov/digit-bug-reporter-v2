@@ -71,18 +71,68 @@ function dedupe(lines) {
 }
 
 function evidenceText(events) {
-  const calls = dedupe(events.filter((e) => e.kind === 'network')
-    .map((e) => {
-      const base = `${e.method} ${e.url} → ${e.status || 'failed'}${e.error ? `  ${e.error}` : ''}`;
-      const curl = `curl -sS -X ${e.method} ${JSON.stringify(e.url)}`;
-      const response = typeof e.response === 'string' && e.response.trim() ? `Response: ${e.response.trim()}` : '';
-      return [base, curl, response].filter(Boolean).join('\n');
-    }));
   const errors = dedupe(events.filter((e) => e.kind === 'console').map((e) => e.text));
-  const parts = [];
-  if (calls.length) parts.push('Failing API calls:\n' + calls.join('\n\n'));
-  if (errors.length) parts.push('Console errors:\n' + errors.slice(0, 20).join('\n'));
-  return parts.join('\n\n') || 'No failing API calls or console errors were captured.';
+  return errors.length ? 'Console errors:\n' + errors.slice(0, 20).join('\n') : 'No console errors were captured.';
+}
+
+// ---- API calls: every call is listed; the ticked ones go into the issue with a curl and their response ----
+const BODY_LIMIT = 65_536; // GitHub rejects longer issue bodies
+const isFailed = (e) => !e.status || e.status >= 400;
+const TRUNCATED = '\n… (truncated';
+const shellQuote = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
+const escapeHtml = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+const parseJson = (s) => { try { return JSON.parse(s); } catch { return undefined; } };
+
+// page-hook.js keeps same-origin URLs as a path and other hosts as host + path
+function fullUrl(url, origin) {
+  if (/^https?:\/\//.test(url)) return url;
+  return url.startsWith('/') ? `${origin}${url}` : `https://${url}`;
+}
+
+function curlOf(call, origin) {
+  const lines = [`curl -sS -X ${call.method} ${shellQuote(fullUrl(call.url, origin))}`];
+  const note = [];
+  // redact() masks the token placeholder page-hook.js put in RequestInfo; put the placeholder back for the reader
+  const body = (call.body || '').replace(/("authToken"\s*:\s*)"<redacted>"/gi, '$1"<your-auth-token>"');
+  if (/^<[^>]*>$/.test(body)) note.push(`# request body: ${body}`);
+  else if (body) {
+    if (body.includes(TRUNCATED)) note.push('# the request body was truncated when recorded; complete it before running');
+    if (parseJson(body) !== undefined) lines.push(`-H 'Content-Type: application/json'`);
+    lines.push(`--data-raw ${shellQuote(body)}`);
+  }
+  if (body.includes('<your-auth-token>')) note.push('# replace <your-auth-token> with your own token (localStorage "Employee.token" on the DIGIT page)');
+  return [...note, lines.join(' \\\n  ')].join('\n');
+}
+
+function fence(text, lang = '') {
+  const longest = Math.max(2, ...(String(text).match(/`+/g) || []).map((m) => m.length));
+  const f = '`'.repeat(longest + 1);
+  return `${f}${lang}\n${text}\n${f}`;
+}
+
+function responseBlock(call) {
+  const text = (call.response || '').trim();
+  if (!text) return '_empty response_';
+  const json = parseJson(text);
+  return json !== undefined ? fence(JSON.stringify(json, null, 2), 'json') : fence(text, 'text');
+}
+
+const callTitle = (c) => `${c.method} ${c.url} → ${c.status || 'failed'}${c.ms != null ? ` · ${c.ms} ms` : ''}`;
+
+function apiMarkdown(calls, origin) {
+  if (!calls.length) return '';
+  const blocks = calls.map((c) => [
+    `<details${isFailed(c) ? ' open' : ''}><summary><code>${escapeHtml(callTitle(c))}</code>${c.error ? ` ${escapeHtml(c.error)}` : ''}</summary>`,
+    '',
+    fence(curlOf(c, origin), 'bash'),
+    '',
+    'Response:',
+    '',
+    responseBlock(c),
+    '',
+    '</details>',
+  ].join('\n'));
+  return `**API calls** (${calls.length}):\n\n${blocks.join('\n\n')}\n\n`;
 }
 
 // A failing HCM service call points at the backend; everything else is UI behaviour.
@@ -104,7 +154,8 @@ function componentOf(url) {
 function buildBody() {
   const v = (k) => $(k).value.trim();
   const section = (h, text) => `## ${h}\n${text || '_not provided_'}\n`;
-  const media = [$('includeShot').checked && report.screenshot && 'screenshot', $('includeVideo').checked && report.video?.size && 'screen recording']
+  const snaps = snapPicks.size ? `${snapPicks.size} snapshot${snapPicks.size > 1 ? 's' : ''} from the recording` : '';
+  const media = [$('includeShot').checked && report.screenshot && 'screenshot', snaps, $('includeVideo').checked && report.video?.size && 'screen recording']
     .filter(Boolean).join(' and ');
   return [
     `**Environment:** ${v('env')}\n`,
@@ -113,7 +164,8 @@ function buildBody() {
     section('Steps to reproduce', v('steps')),
     section('Expected', v('expected')),
     section('Actual', v('actual')),
-    section('Evidence', `${media ? `The ${media} ${media.includes(' and ') ? 'are' : 'is'} attached below.\n\n` : ''}\`\`\`text\n${v('evidence')}\n\`\`\``),
+    section('Evidence', `${media ? `The ${media} ${media.includes(' and ') ? 'are' : 'is'} attached below.\n\n` : ''}`
+      + `${apiMarkdown(pickedCalls(), origin)}${fence(v('evidence'), 'text')}`),
     section('Notes', v('notes')),
     `**Severity:** ${v('severity')}   **Priority:** ${v('priority')}   **Type:** ${v('type')}   **Component:** ${v('component') || 'not set'}`,
     '',
@@ -254,6 +306,10 @@ const CHECKS = [
     return !bad.length || `Not a GitHub username: ${bad.join(', ')}.`;
   }],
   ['title', () => !!$('title').value.trim() || 'Add a title.'],
+  ['apiList', () => {
+    const n = buildBody().length + $('title').value.length + 4;
+    return n <= BODY_LIMIT || `The issue text is ${Math.ceil(n / 1000)} KB, over GitHub's 65 KB limit. Untick some API calls.`;
+  }],
   ['pii', () => $('pii').checked || 'Tick this box after checking the video, screenshot and text for personal data.'],
 ];
 
@@ -303,6 +359,88 @@ window.addEventListener('error', (e) => showFailure(e.error || e.message));
 window.addEventListener('unhandledrejection', (e) => showFailure(e.reason));
 
 let report = await db.get(id);
+const snapPicks = new Set(); // indexes into report.snapshots
+const clock = (ms) => { const s = Math.round(ms / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+
+function renderSnapshots() {
+  const shots = report.snapshots || [];
+  $('snapBox').hidden = !shots.length;
+  $('snapCount').textContent = shots.length ? `${shots.length} taken · ${snapPicks.size} ticked` : '';
+  $('snapGrid').replaceChildren(...shots.map((s, i) => {
+    const fig = Object.assign(document.createElement('figure'), { className: snapPicks.has(i) ? 'picked' : '' });
+    const img = Object.assign(document.createElement('img'), { src: s.dataUrl, alt: `Snapshot at ${clock(s.at)}`, loading: 'lazy' });
+    img.addEventListener('click', async () => {
+      const blob = await (await fetch(s.dataUrl)).blob();
+      chrome.tabs.create({ url: URL.createObjectURL(blob) });
+    });
+    const box = Object.assign(document.createElement('input'), { type: 'checkbox', checked: snapPicks.has(i) });
+    box.addEventListener('change', () => {
+      if (box.checked) snapPicks.add(i); else snapPicks.delete(i);
+      renderSnapshots();
+      updateApiCount();
+    });
+    const label = document.createElement('label');
+    label.append(box, ' Attach');
+    const cap = document.createElement('figcaption');
+    cap.append(label, `${clock(s.at)}${s.manual ? ' · taken by you' : ''}`);
+    fig.append(img, cap);
+    return fig;
+  }));
+}
+let calls = []; // network events, oldest first
+const picks = new Set(); // indexes into calls
+let origin = '';
+const pickedCalls = () => calls.filter((_, i) => picks.has(i));
+
+function updateApiCount() {
+  $('apiCount').textContent = calls.length ? `${calls.length} recorded · ${picks.size} ticked` : '';
+  if (!report) return;
+  const n = buildBody().length;
+  $('apiSize').textContent = `Issue text: ${Math.ceil(n / 1000)} KB of GitHub's 65 KB limit.`;
+  $('apiSize').classList.toggle('over', n > BODY_LIMIT);
+}
+
+function filterApiList() {
+  const q = $('apiFilter').value.trim().toLowerCase();
+  const failedOnly = $('apiFailedOnly').checked;
+  for (const li of $('apiList').children) {
+    const c = calls[li.dataset.i];
+    li.hidden = (failedOnly && !isFailed(c)) || (q && !callTitle(c).toLowerCase().includes(q) && !(c.error || '').toLowerCase().includes(q));
+  }
+}
+
+function renderApiList() {
+  $('apiEmpty').hidden = calls.length > 0;
+  $('apiList').replaceChildren(...calls.map((c, i) => {
+    const li = document.createElement('li');
+    li.dataset.i = i;
+    const box = Object.assign(document.createElement('input'), { type: 'checkbox', checked: picks.has(i) });
+    box.setAttribute('aria-label', `Include ${c.method} ${c.url}`);
+    box.addEventListener('change', () => { if (box.checked) picks.add(i); else picks.delete(i); updateApiCount(); });
+    const details = document.createElement('details');
+    const summary = document.createElement('summary');
+    const st = Object.assign(document.createElement('span'), { className: `api-status${isFailed(c) ? ' bad' : ''}`, textContent: c.status || 'failed' });
+    summary.append(`${c.method} ${c.url} → `, st, c.ms != null ? ` · ${c.ms} ms` : '');
+    if (c.error) summary.append(' ', Object.assign(document.createElement('span'), { className: 'api-err', textContent: c.error }));
+    // curl and response are built on first open: a page can record a lot of calls
+    details.addEventListener('toggle', () => {
+      if (!details.open || details.childElementCount > 1) return;
+      const pre = (text) => Object.assign(document.createElement('pre'), { textContent: text });
+      const h = (text) => Object.assign(document.createElement('h4'), { textContent: text });
+      const json = parseJson(c.response || '');
+      details.append(h('curl'), pre(curlOf(c, origin)), h('Response'),
+        pre(json !== undefined ? JSON.stringify(json, null, 2) : c.response || '(empty)'));
+    });
+    details.append(summary);
+    const row = document.createElement('div');
+    row.className = 'api-row';
+    row.append(box, details);
+    li.append(row);
+    return li;
+  }));
+  filterApiList();
+  updateApiCount();
+}
 
 if (!report) {
   $('missing').hidden = false;
@@ -313,6 +451,8 @@ if (!report) {
     url: e.url && clean(e.url),
     text: e.text && clean(e.text),
     error: e.error && clean(e.error),
+    body: e.body && clean(e.body),
+    response: e.response && clean(e.response),
   }));
   const tabUrl = clean(report.tabUrl);
 
@@ -324,6 +464,11 @@ if (!report) {
   } else {
     $('includeVideo').checked = false;
   }
+  const savedSnaps = Array.isArray(report.snapshotPicks) ? report.snapshotPicks : null;
+  (report.snapshots || []).forEach((s, i) => { if (savedSnaps ? savedSnaps.includes(i) : s.manual) snapPicks.add(i); });
+  renderSnapshots();
+  $('snapAll').addEventListener('click', () => { (report.snapshots || []).forEach((_, i) => snapPicks.add(i)); renderSnapshots(); });
+  $('snapNone').addEventListener('click', () => { snapPicks.clear(); renderSnapshots(); });
   if (report.screenshot) {
     $('shotBox').hidden = false;
     $('shot').src = report.screenshot;
@@ -340,6 +485,19 @@ if (!report) {
   $('env').value = environmentLine(report.tabUrl, events, report.pageInfo);
   $('steps').value = draftSteps(tabUrl, events);
   $('evidence').value = evidenceText(events);
+  try { origin = new URL(report.tabUrl).origin; } catch { /* no url */ }
+  calls = events.filter((e) => e.kind === 'network');
+  const saved = Array.isArray(report.apiPicks) ? report.apiPicks : null;
+  calls.forEach((c, i) => { if (saved ? saved.includes(i) : isFailed(c)) picks.add(i); });
+  renderApiList();
+  $('apiFilter').addEventListener('input', filterApiList);
+  $('apiFailedOnly').addEventListener('change', filterApiList);
+  $('apiPickFailed').addEventListener('click', () => {
+    calls.forEach((c, i) => { if (isFailed(c)) picks.add(i); });
+    renderApiList();
+  });
+  $('apiClear').addEventListener('click', () => { picks.clear(); renderApiList(); });
+  for (const el of ['evidence', 'steps', 'summary', 'notes']) $(el).addEventListener('change', updateApiCount);
   $('component').value = componentOf(report.tabUrl);
   if (report.title) $('title').value = report.title;
 
@@ -386,6 +544,8 @@ if (!report) {
         body: buildBody(),
         includeVideo: $('includeVideo').checked,
         includeScreenshot: $('includeShot').checked,
+        apiPicks: [...picks],
+        snapshotPicks: [...snapPicks].sort((a, b) => a - b),
       });
       report = await db.get(id);
       // The tracker row; github-attach.js adds the issue URL once the issue is created.

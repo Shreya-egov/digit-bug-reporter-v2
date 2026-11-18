@@ -18,6 +18,7 @@
   legend { font-size: 12px; color: var(--muted); padding: 0 4px; }
   fieldset label { display: flex; align-items: center; gap: 8px; padding: 3px 0; cursor: pointer; }
   input[type=radio]:focus-visible { outline: 3px solid #ffdd00; }
+  .key { color: var(--muted); font-size: 11px; margin-left: 4px; }
   #timer { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--rec); }
 </style>
 </head>
@@ -35,6 +36,8 @@
   </div>
   <div id="recording" hidden>
     <p>Recording… <span id="timer">0:00</span></p>
+    <button id="snap">📷 Snapshot now <span class="key">Alt+Shift+S</span></button>
+    <p id="snapCount" role="status"></p>
     <button id="stop" class="stop">■ Stop &amp; review</button>
     <p>Nothing is sent to GitHub until you review it.</p>
   </div>

@@ -6,27 +6,33 @@ import { getToken, request } from './github-api.js';
 import { redact } from './redact.js';
 
 const EVENTS_PER_TAB = 300;
+// Every API call is recorded, with capped request and response bodies, so calls get their own, smaller log:
+// a busy page must not push the clicks and console errors out, or fill the session storage quota.
+const CALLS_PER_TAB = 150;
 const LOOKBACK_MS = 60_000; // include events from just before Start (e.g. errors on page load)
 
 // ---- rolling event log (storage.session survives the worker being suspended) ----
 let chain = Promise.resolve();
 const serial = (fn) => (chain = chain.then(fn).catch((e) => console.warn('event log', e)));
 
+const logKey = (tabId, event) => (event.kind === 'network' ? `net:${tabId}` : `ev:${tabId}`);
+
 function addEvent(tabId, event) {
   return serial(async () => {
-    const key = `ev:${tabId}`;
+    const key = logKey(tabId, event);
+    const max = event.kind === 'network' ? CALLS_PER_TAB : EVENTS_PER_TAB;
     const { [key]: list = [] } = await chrome.storage.session.get(key);
     list.push(event);
-    if (list.length > EVENTS_PER_TAB) list.splice(0, list.length - EVENTS_PER_TAB);
+    if (list.length > max) list.splice(0, list.length - max);
     await chrome.storage.session.set({ [key]: list });
   });
 }
 
 async function eventsSince(tabId, since) {
   await chain;
-  const key = `ev:${tabId}`;
-  const { [key]: list = [] } = await chrome.storage.session.get(key);
-  return list.filter((e) => e.ts >= since);
+  const keys = [`ev:${tabId}`, `net:${tabId}`];
+  const stored = await chrome.storage.session.get(keys);
+  return keys.flatMap((k) => stored[k] || []).filter((e) => e.ts >= since).sort((a, b) => a.ts - b.ts);
 }
 
 // ---- recording state ----
@@ -233,7 +239,7 @@ async function start(tabId, streamId, withScreenshot = true) {
   const report = await newReport(tab);
   if (await ensureCapture(tabId)) await db.update(report.id, { captureRestartedAt: Date.now() });
   await ensureOffscreen();
-  const res = await chrome.runtime.sendMessage({ target: 'offscreen', type: 'start', streamId });
+  const res = await chrome.runtime.sendMessage({ target: 'offscreen', type: 'start', streamId, timedSnapshots: withScreenshot });
   if (!res?.ok) {
     await db.remove(report.id);
     throw new Error(res?.error || 'Could not start recording');
@@ -261,6 +267,20 @@ function stop() {
   return stopping;
 }
 
+// A snapshot taken by hand while recording (popup button or the keyboard shortcut).
+async function snapDuringRecording() {
+  if (!(await getRec())) throw new Error('Not recording');
+  const res = await chrome.runtime.sendMessage({ target: 'offscreen', type: 'snap' });
+  if (!res?.ok) throw new Error(res?.error || 'Snapshot failed');
+  await chrome.action.setBadgeText({ text: 'SNAP' });
+  setTimeout(() => getRec().then((rec) => rec && chrome.action.setBadgeText({ text: 'REC' })), 800);
+  return { count: res.count };
+}
+
+chrome.commands.onCommand.addListener((command) => {
+  if (command === 'take-snapshot') snapDuringRecording().catch(() => {});
+});
+
 async function snapshot(tabId) {
   const tab = await chrome.tabs.get(tabId);
   const report = await newReport(tab);
@@ -274,6 +294,12 @@ async function githubPayload(id) {
   if (!r?.title) return null;
   const files = [];
   if (r.screenshot && r.includeScreenshot !== false) files.push({ name: 'screenshot.png', type: 'image/png', base64: r.screenshot.split(',')[1] });
+  for (const i of r.snapshotPicks || []) {
+    const s = r.snapshots?.[i];
+    if (!s) continue;
+    const t = Math.round(s.at / 1000);
+    files.push({ name: `snapshot-${Math.floor(t / 60)}m${String(t % 60).padStart(2, '0')}s.jpg`, type: 'image/jpeg', base64: s.dataUrl.split(',')[1] });
+  }
   if (r.video?.size && r.includeVideo !== false) {
     files.push({ name: 'recording.webm', type: 'video/webm', base64: await blobToBase64(r.video) });
   }
@@ -314,6 +340,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return reply(stop());
     case 'snapshot':
       return reply(snapshot(msg.tabId));
+    case 'snap':
+      return reply(snapDuringRecording());
     case 'github-payload':
       return reply(githubPayload(msg.id).then((payload) => ({ payload })));
     case 'issue-created':
@@ -335,5 +363,5 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 chrome.tabs.onRemoved.addListener(async (tabId) => {
   const rec = await getRec();
   if (rec?.tabId === tabId) await stop();
-  serial(() => chrome.storage.session.remove(`ev:${tabId}`));
+  serial(() => chrome.storage.session.remove([`ev:${tabId}`, `net:${tabId}`]));
 });

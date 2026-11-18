@@ -36,6 +36,9 @@ asks you before each change.
    **Video + screenshot**, **Video only** or **Screenshot only**. The popup remembers your choice.
 2. Click **● Start recording** and reproduce the bug. Recording stops by itself after 2 minutes.
    With **Screenshot only**, click **📷 Take screenshot** instead; the review page opens straight away.
+   With **Video + screenshot**, a snapshot of the tab is also taken every 10 seconds while recording. In either video
+   mode, take one yourself at any moment with **📷 Snapshot now** in the popup or **Alt+Shift+S** (up to 40 per
+   recording). Snapshots come from the recorded stream, so they work even if the tab isn't the one in front.
 3. Click the icon again, then **■ Stop & review**.
 4. On the review page:
    - Pick the **repository** (click to see all, or type to search), then optionally the **assignees** for that
@@ -44,6 +47,8 @@ asks you before each change.
    - Write the title, the preconditions, the expected result and the actual result. Set the bug type, severity and
      priority.
    - Check the drafted steps, and add the values you typed. Typed text is never recorded.
+   - Tick the **snapshots** to attach. The ones you took by hand are ticked; the 10-second ones are not.
+   - Tick the **API calls** to put in the issue, each with a curl and its response. Failing calls are ticked.
    - Watch the video. Tick the box confirming that no personal data is visible.
 5. Click **Open on GitHub**. Wait for the "done" banner, check the issue, then click **Create**. The banner then
    says the issue was added to the bug tracker.
@@ -205,11 +210,16 @@ Assignees and labels are passed to GitHub in the new-issue link. GitHub applies 
 write access to the repo; otherwise set them in the issue sidebar.
 
 ## What is captured
-- **Captured:** failing API calls (method, path, status, and the DIGIT `Errors[].code/message`); console errors;
-  button and option clicks; select and checkbox changes; page changes; the tenant; the deployed UI build (the
-  hashed `digit-ui.<hash>.bundle.js` name, which changes with every deploy); Chrome version and OS.
-  Events start 1 minute before you press Start, so errors from page load are included.
-- **Never captured:** request bodies (they contain the auth token), what you type into text fields, and audio.
+- **Captured:** every API call the page makes (method, path, status, time taken, the request body and up to 4,000
+  characters of the response); console errors; button and option clicks; select and checkbox changes; page changes;
+  the tenant; the deployed UI build (the hashed `digit-ui.<hash>.bundle.js` name, which changes with every deploy);
+  Chrome version and OS. Events start 1 minute before you press Start, so errors from page load are included. The
+  last 150 calls per tab are kept.
+- **API calls in the issue:** the review page lists every recorded call. Failing calls are ticked; tick or untick any
+  of them. Each ticked call goes into the issue's Evidence with a ready-to-run curl and its response.
+- **Never captured:** the auth token and user details in `RequestInfo` (replaced in the page with a
+  `<your-auth-token>` placeholder before anything is recorded), login and OTP request bodies, file uploads, what you
+  type into text fields, and audio.
 - **Redaction:** tokens, JWTs, passwords, OTPs, phone numbers, emails, personal-data fields and non-essential query
   parameters are masked automatically. Free text and the video can't be redacted, so check them before filing.
 - **Storage:** only the last 10 reports (with their video) are kept, in the extension's own storage. Tracker rows
